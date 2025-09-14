@@ -2,6 +2,10 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { QuestCard } from "@/components/QuestCard";
 import { ProgressBar } from "@/components/ProgressBar";
+import { AdaptiveQuiz, QuizResponse } from "@/components/AdaptiveQuiz";
+import { ResultsDisplay } from "@/components/ResultsDisplay";
+import { geminiService, CareerAnalysis } from "@/services/geminiService";
+import { useToast } from "@/hooks/use-toast";
 
 interface TalentsPathProps {
   userName: string;
@@ -31,7 +35,11 @@ type Phase = "skill-selection" | "quiz-phase-1" | "quiz-phase-2" | "results";
 export const TalentsPath = ({ userName, onBack }: TalentsPathProps) => {
   const [phase, setPhase] = useState<Phase>("skill-selection");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const [phase1Responses, setPhase1Responses] = useState<QuizResponse[]>([]);
+  const [phase2Responses, setPhase2Responses] = useState<QuizResponse[]>([]);
+  const [careerAnalysis, setCareerAnalysis] = useState<CareerAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const { toast } = useToast();
 
   const handleSkillToggle = (skillId: string) => {
     setSelectedSkills(prev => {
@@ -50,11 +58,48 @@ export const TalentsPath = ({ userName, onBack }: TalentsPathProps) => {
     }
   };
 
+  const handlePhase1Complete = (responses: QuizResponse[]) => {
+    setPhase1Responses(responses);
+    setPhase("quiz-phase-2");
+  };
+
+  const handlePhase2Complete = async (responses: QuizResponse[]) => {
+    setPhase2Responses(responses);
+    setIsAnalyzing(true);
+
+    try {
+      const allResponses = [...phase1Responses, ...responses];
+      const analysis = await geminiService.analyzeCareerFit(
+        selectedSkills,
+        allResponses,
+        { name: userName }
+      );
+      setCareerAnalysis(analysis);
+      setPhase("results");
+    } catch (error) {
+      toast({
+        title: "Analysis Error",
+        description: "Failed to analyze your responses. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleRestart = () => {
+    setPhase("skill-selection");
+    setSelectedSkills([]);
+    setPhase1Responses([]);
+    setPhase2Responses([]);
+    setCareerAnalysis(null);
+  };
+
   const getProgress = () => {
     switch (phase) {
-      case "skill-selection": return 20;
-      case "quiz-phase-1": return 40 + (currentQuestion / 20) * 30;
-      case "quiz-phase-2": return 70 + (currentQuestion / 30) * 25;
+      case "skill-selection": return 15;
+      case "quiz-phase-1": return 15 + (phase1Responses.length / 20) * 35;
+      case "quiz-phase-2": return 50 + (phase2Responses.length / 30) * 40;
       case "results": return 100;
       default: return 0;
     }
@@ -100,21 +145,28 @@ export const TalentsPath = ({ userName, onBack }: TalentsPathProps) => {
     </div>
   );
 
-  const renderQuizPlaceholder = () => (
+  const renderAnalyzing = () => (
     <div className="max-w-2xl mx-auto text-center">
       <QuestCard className="p-8">
-        <h2 className="text-2xl font-bold mb-4">Assessment Coming Soon!</h2>
-        <p className="text-muted-foreground mb-6">
-          The personalized quiz based on your selected skills will be implemented next.
-          This will include {phase === "quiz-phase-1" ? "20" : "30"} carefully crafted questions
-          to understand your preferences and working style.
-        </p>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div className="bg-primary/10 p-3 rounded">
-            Phase 1: Core Assessment (20 questions)
-          </div>
-          <div className="bg-secondary/10 p-3 rounded">
-            Phase 2: Deep Dive (30 questions)
+        <div className="animate-pulse space-y-4">
+          <div className="w-16 h-16 bg-primary/20 rounded-full mx-auto animate-bounce"></div>
+          <h2 className="text-2xl font-bold">🤖 AI is Analyzing Your Responses</h2>
+          <p className="text-muted-foreground">
+            Our advanced AI is processing your answers to generate personalized career insights...
+          </p>
+          <div className="grid grid-cols-2 gap-4 text-sm mt-6">
+            <div className="bg-primary/10 p-3 rounded">
+              ✓ Skill Pattern Analysis
+            </div>
+            <div className="bg-secondary/10 p-3 rounded">
+              ✓ Career Matching
+            </div>
+            <div className="bg-accent/10 p-3 rounded">
+              ✓ Market Intelligence
+            </div>
+            <div className="bg-warning/10 p-3 rounded">
+              ✓ Learning Path Generation
+            </div>
           </div>
         </div>
       </QuestCard>
@@ -145,7 +197,34 @@ export const TalentsPath = ({ userName, onBack }: TalentsPathProps) => {
         {/* Content */}
         <div className="animate-fade-in-up">
           {phase === "skill-selection" && renderSkillSelection()}
-          {(phase === "quiz-phase-1" || phase === "quiz-phase-2") && renderQuizPlaceholder()}
+          
+          {phase === "quiz-phase-1" && (
+            <AdaptiveQuiz
+              selectedSkills={selectedSkills}
+              onComplete={handlePhase1Complete}
+              phase="initial"
+              totalQuestions={20}
+            />
+          )}
+          
+          {phase === "quiz-phase-2" && (
+            <AdaptiveQuiz
+              selectedSkills={selectedSkills}
+              onComplete={handlePhase2Complete}
+              phase="deep-dive"
+              totalQuestions={30}
+            />
+          )}
+          
+          {isAnalyzing && renderAnalyzing()}
+          
+          {phase === "results" && careerAnalysis && (
+            <ResultsDisplay
+              analysis={careerAnalysis}
+              userName={userName}
+              onRestart={handleRestart}
+            />
+          )}
         </div>
       </div>
     </div>
