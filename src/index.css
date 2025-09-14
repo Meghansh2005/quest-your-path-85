@@ -2,41 +2,67 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Career Quest Design System - Adventure theme with professional gradients */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Base Colors */
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    /* Card Colors */
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Primary - Indigo for Talents Path */
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 98%;
+    --primary-dark: 239 84% 45%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Secondary - Orange for Scenarios Path */
+    --secondary: 24 95% 53%;
+    --secondary-foreground: 0 0% 98%;
+    --secondary-dark: 24 95% 40%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Quest UI Colors */
+    --quest-success: 142 76% 36%;
+    --quest-warning: 38 92% 50%;
+    --quest-danger: 0 84.2% 60.2%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Muted Colors */
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    /* Accent Colors */
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    /* UI Elements */
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 239 84% 67%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(239 84% 67%), hsl(239 84% 45%));
+    --gradient-secondary: linear-gradient(135deg, hsl(24 95% 53%), hsl(24 95% 40%));
+    --gradient-background: linear-gradient(135deg, hsl(240 10% 3.9%), hsl(240 15% 6%));
+    --gradient-card: linear-gradient(135deg, hsl(240 5% 8%), hsl(240 8% 12%));
+    --gradient-success: linear-gradient(135deg, hsl(142 76% 36%), hsl(142 76% 28%));
+
+    /* Shadows */
+    --shadow-primary: 0 10px 30px -10px hsl(239 84% 67% / 0.3);
+    --shadow-secondary: 0 10px 30px -10px hsl(24 95% 53% / 0.3);
+    --shadow-card: 0 8px 25px -8px hsl(240 10% 3.9% / 0.4);
+    --shadow-glow: 0 0 40px hsl(239 84% 67% / 0.15);
+
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-spring: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 
     --sidebar-background: 0 0% 98%;
 
@@ -101,5 +127,89 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    background: var(--gradient-background);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold;
+  }
+
+  /* Gradient utilities */
+  .gradient-primary {
+    background: var(--gradient-primary);
+  }
+
+  .gradient-secondary {
+    background: var(--gradient-secondary);
+  }
+
+  .gradient-card {
+    background: var(--gradient-card);
+  }
+
+  .gradient-success {
+    background: var(--gradient-success);
+  }
+
+  /* Shadow utilities */
+  .shadow-primary {
+    box-shadow: var(--shadow-primary);
+  }
+
+  .shadow-secondary {
+    box-shadow: var(--shadow-secondary);
+  }
+
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .shadow-glow {
+    box-shadow: var(--shadow-glow);
+  }
+
+  /* Animation utilities */
+  .transition-smooth {
+    transition: var(--transition-smooth);
+  }
+
+  .transition-spring {
+    transition: var(--transition-spring);
+  }
+
+  /* Quest card hover effects */
+  .quest-card {
+    @apply rounded-xl p-6 cursor-pointer transition-spring;
+    background: var(--gradient-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .quest-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-glow), var(--shadow-card);
+  }
+
+  /* Progress bar animations */
+  .progress-fill {
+    @apply transition-all duration-700 ease-out;
+  }
+
+  /* Skill circle animations */
+  .skill-circle {
+    @apply rounded-full w-20 h-20 flex items-center justify-center cursor-pointer transition-spring border-2;
+    background: var(--gradient-card);
+    border-color: hsl(var(--border));
+  }
+
+  .skill-circle:hover {
+    transform: scale(1.05);
+    box-shadow: var(--shadow-primary);
+  }
+
+  .skill-circle.selected {
+    background: var(--gradient-primary);
+    border-color: hsl(var(--primary));
+    transform: scale(1.1);
   }
 }
