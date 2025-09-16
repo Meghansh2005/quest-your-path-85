@@ -4,7 +4,7 @@ import { QuestCard } from "@/components/QuestCard";
 import { ProgressBar } from "@/components/ProgressBar";
 import { AdaptiveQuiz, QuizResponse } from "@/components/AdaptiveQuiz";
 import { ResultsDisplay } from "@/components/ResultsDisplay";
-import { geminiService, CareerAnalysis } from "@/services/geminiService";
+import { geminiService, CareerAnalysis, testGeminiAPI } from "@/services/geminiService";
 import { useToast } from "@/hooks/use-toast";
 
 interface TalentsPathProps {
@@ -132,7 +132,28 @@ export const TalentsPath = ({ userName, onBack }: TalentsPathProps) => {
         ))}
       </div>
 
-      <div className="text-center">
+      <div className="text-center space-y-4">
+        {/* Test API Button - Development Only */}
+        <div className="mb-4">
+          <Button
+            onClick={async () => {
+              const result = await testGeminiAPI();
+              toast({
+                title: result.success ? "✅ Gemini API Connected!" : "❌ API Test Failed",
+                description: result.success 
+                  ? `Generated ${result.questionsCount} sample questions successfully.`
+                  : result.error,
+                variant: result.success ? "default" : "destructive",
+              });
+            }}
+            variant="outline"
+            size="sm"
+            className="text-xs"
+          >
+            🧪 Test Gemini API
+          </Button>
+        </div>
+        
         <Button
           onClick={handleContinueToQuiz}
           disabled={selectedSkills.length !== 5}
