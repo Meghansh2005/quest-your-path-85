@@ -137,11 +137,15 @@ export const TalentsPath = ({ userName, onBack }: TalentsPathProps) => {
         <div className="mb-4">
           <Button
             onClick={async () => {
+              toast({
+                title: "🧪 Testing Gemini API...",
+                description: "Please wait while we test the connection.",
+              });
               const result = await testGeminiAPI();
               toast({
                 title: result.success ? "✅ Gemini API Connected!" : "❌ API Test Failed",
                 description: result.success 
-                  ? `Generated ${result.questionsCount} sample questions successfully.`
+                  ? `Generated ${result.questionsCount || 0} sample questions successfully.`
                   : result.error,
                 variant: result.success ? "default" : "destructive",
               });

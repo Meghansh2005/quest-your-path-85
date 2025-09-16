@@ -32,7 +32,7 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
   const [reasoning, setReasoning] = useState("");
   const [responses, setResponses] = useState<QuizResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isGeneratingNext, setIsGeneratingNext] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
   // Load initial questions
@@ -41,6 +41,7 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
   }, [selectedSkills, phase]);
 
   const loadInitialQuestions = async () => {
+    console.log('🔄 Loading initial questions for phase:', phase);
     setIsLoading(true);
     try {
       const initialQuestions = await geminiService.generateAdaptiveQuestions(
@@ -48,8 +49,20 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
         responses,
         phase
       );
-      setQuestions(initialQuestions);
+      
+      if (initialQuestions && initialQuestions.length > 0) {
+        console.log('✅ Loaded', initialQuestions.length, 'questions');
+        setQuestions(initialQuestions);
+      } else {
+        console.log('⚠️ No questions received, showing error');
+        toast({
+          title: "Loading Error",
+          description: "Unable to load questions. Please refresh and try again.",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
+      console.error('❌ Error loading questions:', error);
       toast({
         title: "Error",
         description: "Failed to load questions. Please try again.",
@@ -61,8 +74,16 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
   };
 
   const handleAnswerSubmit = async () => {
-    if (!currentAnswer) return;
+    if (!currentAnswer) {
+      toast({
+        title: "Please select an answer",
+        description: "You need to choose an option before continuing.",
+        variant: "destructive",
+      });
+      return;
+    }
 
+    setIsSubmitting(true);
     const currentQuestion = questions[currentQuestionIndex];
     const newResponse: QuizResponse = {
       questionId: currentQuestion.id,
@@ -75,40 +96,50 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
 
     const updatedResponses = [...responses, newResponse];
     setResponses(updatedResponses);
+    
+    console.log('📝 Recorded response:', newResponse.questionId, 'Total responses:', updatedResponses.length);
 
     // Check if we've reached the target number of questions
     if (updatedResponses.length >= totalQuestions) {
+      console.log('🎯 Assessment complete! Total responses:', updatedResponses.length);
       onComplete(updatedResponses);
+      setIsSubmitting(false);
       return;
     }
 
-    // Generate next question based on current responses
-    setIsGeneratingNext(true);
-    try {
-      const nextQuestions = await geminiService.generateAdaptiveQuestions(
-        selectedSkills,
-        updatedResponses,
-        phase
-      );
-      
-      // Add new questions to the queue if we don't have enough
-      if (currentQuestionIndex + 1 >= questions.length) {
-        setQuestions(prev => [...prev, ...nextQuestions]);
+    // Check if we need more questions
+    if (currentQuestionIndex + 1 >= questions.length) {
+      console.log('🔄 Need more questions, generating...');
+      try {
+        const nextQuestions = await geminiService.generateAdaptiveQuestions(
+          selectedSkills,
+          updatedResponses,
+          phase
+        );
+        
+        if (nextQuestions && nextQuestions.length > 0) {
+          console.log('✅ Generated', nextQuestions.length, 'additional questions');
+          setQuestions(prev => [...prev, ...nextQuestions]);
+        } else {
+          console.log('⚠️ No additional questions generated');
+        }
+      } catch (error) {
+        console.error('❌ Error generating additional questions:', error);
+        toast({
+          title: "Error",
+          description: "Failed to generate next question. Please try again.",
+          variant: "destructive",
+        });
+        setIsSubmitting(false);
+        return;
       }
-      
-      // Move to next question
-      setCurrentQuestionIndex(prev => prev + 1);
-      setCurrentAnswer(null);
-      setReasoning("");
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to generate next question. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsGeneratingNext(false);
     }
+    
+    // Move to next question
+    setCurrentQuestionIndex(prev => prev + 1);
+    setCurrentAnswer(null);
+    setReasoning("");
+    setIsSubmitting(false);
   };
 
   const renderQuestionInput = (question: AdaptiveQuestion) => {
@@ -213,15 +244,23 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
     return (
       <div className="max-w-2xl mx-auto text-center">
         <Card className="p-8">
-          <div className="animate-pulse space-y-4">
-            <div className="h-4 bg-secondary rounded w-3/4 mx-auto"></div>
-            <div className="h-4 bg-secondary rounded w-1/2 mx-auto"></div>
-            <div className="h-8 bg-secondary rounded w-full"></div>
-            <div className="h-8 bg-secondary rounded w-full"></div>
+          <div className="space-y-6">
+            <div className="w-16 h-16 bg-primary/20 rounded-full mx-auto animate-bounce"></div>
+            <div>
+              <h2 className="text-xl font-bold mb-2">🤖 Generating Your Questions</h2>
+              <p className="text-muted-foreground">
+                AI is creating personalized questions based on your selected skills...
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-primary/10 p-3 rounded">
+                ✓ Analyzing Skills
+              </div>
+              <div className="bg-secondary/10 p-3 rounded">
+                ✓ Crafting Questions
+              </div>
+            </div>
           </div>
-          <p className="mt-4 text-muted-foreground">
-            🤖 AI is generating personalized questions based on your profile...
-          </p>
         </Card>
       </div>
     );
@@ -302,10 +341,10 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
             </Button>
             <Button
               onClick={handleAnswerSubmit}
-              disabled={!currentAnswer || isGeneratingNext}
+              disabled={!currentAnswer || isSubmitting}
               className="gradient-primary"
             >
-              {isGeneratingNext ? 'Generating Next...' : 
+              {isSubmitting ? 'Processing...' : 
                responses.length + 1 >= totalQuestions ? 'Complete Assessment' : 'Next Question'}
             </Button>
           </div>
@@ -318,6 +357,9 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
           Phase: {phase === 'initial' ? '🔍 Initial Assessment' : 
                   phase === 'deep-dive' ? '🎯 Deep Dive Analysis' : 
                   '✅ Validation & Refinement'}
+        </p>
+        <p className="mt-1">
+          Questions loaded: {questions.length} | Responses: {responses.length}/{totalQuestions}
         </p>
       </div>
     </div>

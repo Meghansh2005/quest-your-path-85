@@ -112,17 +112,26 @@ class GeminiService {
       
       // Clean up response to ensure valid JSON
       const cleanResponse = this.extractJSON(response);
+      if (!cleanResponse) {
+        throw new Error('No valid JSON found in response');
+      }
       const parsed = JSON.parse(cleanResponse);
       console.log('✅ Successfully parsed JSON response');
       
       return parsed;
     } catch (error) {
       console.error('❌ Error with Gemini API:', error);
-      throw error;
+      // Return fallback data instead of throwing
+      console.log('🔄 Using fallback data due to API error');
+      return null;
     }
   }
 
   private extractJSON(text: string): string {
+    if (!text || typeof text !== 'string') {
+      return '';
+    }
+    
     // Try to find JSON in the response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -162,18 +171,23 @@ class GeminiService {
     previousAnswers: any[],
     phase: 'initial' | 'deep-dive' | 'validation'
   ): Promise<AdaptiveQuestion[]> {
+    console.log('🎯 Generating adaptive questions for phase:', phase);
+    console.log('Selected skills:', selectedSkills);
+    console.log('Previous answers count:', previousAnswers.length);
+    
     const context = this.conversationHistory.join('\n');
+    const timestamp = Date.now();
+    
     const prompt = `
       ${SYSTEM_PROMPTS.QUESTION_GENERATOR}
       
       IMPORTANT: Respond ONLY with valid JSON. No additional text or explanations.
       
-      Context: ${context}
       Selected Skills: ${selectedSkills.join(', ')}
-      Previous Answers: ${JSON.stringify(previousAnswers)}
+      Previous Answers Count: ${previousAnswers.length}
       Assessment Phase: ${phase}
       
-      Generate 5 adaptive questions that:
+      Generate 3 adaptive questions that:
       1. Build on previous responses
       2. Explore ${phase === 'initial' ? 'broad skill assessment' : phase === 'deep-dive' ? 'detailed competencies' : 'validation of insights'}
       3. Use varied question types (scenarios, rankings, scales)
@@ -183,44 +197,28 @@ class GeminiService {
       {
         "questions": [
           {
-            "id": "q_${Date.now()}_1",
-            "question": "What motivates you most when working with ${selectedSkills[0] || 'new challenges'}?",
+            "id": "q_${timestamp}_1",
+            "question": "What motivates you most when working with ${selectedSkills[0] || 'problem-solving'}?",
             "type": "multiple-choice",
             "options": ["Solving complex problems", "Collaborating with others", "Creating innovative solutions", "Achieving measurable results"],
             "skillsAssessed": ["${selectedSkills[0] || 'motivation'}"],
             "difficultyLevel": 3
           },
           {
-            "id": "q_${Date.now()}_2", 
+            "id": "q_${timestamp}_2", 
             "question": "Rate your confidence in handling unexpected challenges in your field",
             "type": "scale",
             "skillsAssessed": ["adaptability", "confidence"],
             "difficultyLevel": 2
           },
           {
-            "id": "q_${Date.now()}_3",
+            "id": "q_${timestamp}_3",
             "question": "You're leading a project that's falling behind schedule. What's your first action?",
             "type": "scenario",
             "scenario": "Your team is working on an important project with a tight deadline. You realize you're 20% behind schedule with only 2 weeks left.",
             "options": ["Analyze what's causing delays", "Increase team working hours", "Request deadline extension", "Redistribute tasks among team"],
             "skillsAssessed": ["leadership", "problem-solving"],
             "difficultyLevel": 4
-          },
-          {
-            "id": "q_${Date.now()}_4",
-            "question": "Rank these work environment factors by importance to you",
-            "type": "ranking", 
-            "options": ["Flexible schedule", "Learning opportunities", "Team collaboration", "Individual autonomy"],
-            "skillsAssessed": ["work-preferences"],
-            "difficultyLevel": 2
-          },
-          {
-            "id": "q_${Date.now()}_5",
-            "question": "How do you typically approach learning a new skill relevant to your work?",
-            "type": "multiple-choice",
-            "options": ["Take structured online courses", "Learn through hands-on practice", "Find a mentor or coach", "Read books and research materials"],
-            "skillsAssessed": ["learning-style", "self-development"],
-            "difficultyLevel": 3
           }
         ]
       }
@@ -228,8 +226,15 @@ class GeminiService {
 
     try {
       const result = await this.makeStructuredRequest(prompt);
-      this.addToContext(prompt, JSON.stringify(result));
-      return result.questions || [];
+      
+      if (result && result.questions && Array.isArray(result.questions)) {
+        console.log('✅ Generated', result.questions.length, 'questions from Gemini API');
+        this.addToContext(`Generated ${result.questions.length} questions for ${phase}`, JSON.stringify(result.questions));
+        return result.questions;
+      } else {
+        console.log('⚠️ Invalid response from Gemini API, using fallback questions');
+        return this.getFallbackQuestions(selectedSkills, phase);
+      }
     } catch (error) {
       console.error('Error generating adaptive questions:', error);
       return this.getFallbackQuestions(selectedSkills, phase);
@@ -526,23 +531,58 @@ class GeminiService {
 
   // Fallback methods for error handling
   private getFallbackQuestions(skills: string[], phase: string): AdaptiveQuestion[] {
-    return [
+    console.log('🔄 Using fallback questions for phase:', phase);
+    const timestamp = Date.now();
+    
+    const baseQuestions = [
       {
-        id: 'fallback-1',
-        question: `In your experience with ${skills[0]}, what motivates you most?`,
-        type: 'multiple-choice',
-        options: ['Solving complex problems', 'Working with people', 'Creating something new', 'Achieving measurable results'],
-        skillsAssessed: [skills[0]],
+        id: `fallback_${timestamp}_1`,
+        question: `When working with ${skills[0] || 'new challenges'}, what energizes you most?`,
+        type: 'multiple-choice' as const,
+        options: ['Solving complex problems', 'Collaborating with team members', 'Creating innovative solutions', 'Achieving measurable results'],
+        skillsAssessed: [skills[0] || 'motivation'],
         difficultyLevel: 3
       },
       {
-        id: 'fallback-2',
-        question: 'How do you prefer to learn new skills?',
-        type: 'multiple-choice',
-        options: ['Hands-on practice', 'Reading and research', 'Learning from others', 'Trial and error'],
-        skillsAssessed: ['Learning Style'],
+        id: `fallback_${timestamp}_2`,
+        question: 'How confident are you in adapting to unexpected changes at work?',
+        type: 'scale' as const,
+        skillsAssessed: ['adaptability', 'confidence'],
         difficultyLevel: 2
+      },
+      {
+        id: `fallback_${timestamp}_3`,
+        question: 'Your team disagrees on the best approach to a project. What do you do?',
+        type: 'multiple-choice' as const,
+        options: ['Facilitate a team discussion to find consensus', 'Research best practices and present findings', 'Suggest trying multiple approaches in parallel', 'Escalate to management for guidance'],
+        skillsAssessed: ['leadership', 'communication', 'problem-solving'],
+        difficultyLevel: 4
       }
+    ];
+
+    if (phase === 'deep-dive') {
+      baseQuestions.push(
+        {
+          id: `fallback_${timestamp}_4`,
+          question: `In your experience with ${skills[1] || 'teamwork'}, what's your biggest strength?`,
+          type: 'multiple-choice' as const,
+          options: ['Building relationships', 'Organizing workflows', 'Mentoring others', 'Driving results'],
+          skillsAssessed: [skills[1] || 'teamwork'],
+          difficultyLevel: 3
+        },
+        {
+          id: `fallback_${timestamp}_5`,
+          question: 'How do you prefer to learn new skills for your career?',
+          type: 'multiple-choice' as const,
+          options: ['Hands-on practice and experimentation', 'Structured courses and certifications', 'Learning from mentors and colleagues', 'Reading and self-directed research'],
+          skillsAssessed: ['learning-style', 'self-development'],
+          difficultyLevel: 2
+        }
+      );
+    }
+
+    return [
+      ...baseQuestions.slice(0, phase === 'initial' ? 3 : 5)
     ];
   }
 
