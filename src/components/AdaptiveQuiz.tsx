@@ -127,14 +127,17 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
   };
 
   const renderQuestionInput = (question: AdaptiveQuestion) => {
+    console.log('🎯 Rendering question input for:', question.type, 'Question:', question.question);
+    console.log('📝 Current answer:', currentAnswer);
+    
     switch (question.type) {
       case 'multiple-choice':
         return (
           <RadioGroup value={currentAnswer} onValueChange={setCurrentAnswer}>
             {question.options?.map((option, index) => (
-              <div key={index} className="flex items-center space-x-2">
+              <div key={index} className="flex items-center space-x-2 p-2 rounded hover:bg-secondary/10">
                 <RadioGroupItem value={option} id={`option-${index}`} />
-                <Label htmlFor={`option-${index}`} className="cursor-pointer">
+                <Label htmlFor={`option-${index}`} className="cursor-pointer flex-1">
                   {option}
                 </Label>
               </div>
@@ -175,14 +178,17 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
           <div className="space-y-4">
             {question.scenario && (
               <div className="bg-secondary/10 p-4 rounded-lg">
+                <h4 className="font-semibold mb-2">📋 Scenario:</h4>
                 <p className="text-sm">{question.scenario}</p>
               </div>
             )}
+            <h4 className="font-semibold mb-3">🤔 How would you respond?</h4>
             <RadioGroup value={currentAnswer} onValueChange={setCurrentAnswer}>
               {question.options?.map((option, index) => (
-                <div key={index} className="flex items-center space-x-2">
+                <div key={index} className="flex items-start space-x-3 p-3 rounded border hover:border-primary/50 hover:bg-primary/5">
                   <RadioGroupItem value={option} id={`scenario-${index}`} />
-                  <Label htmlFor={`scenario-${index}`} className="cursor-pointer">
+                  <Label htmlFor={`scenario-${index}`} className="cursor-pointer flex-1 text-sm leading-relaxed">
+                    <span className="font-medium">{String.fromCharCode(65 + index)}.</span> {option}
                     {option}
                   </Label>
                 </div>
@@ -213,13 +219,17 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
         );
 
       default:
+        console.log('⚠️ Unknown question type, using textarea fallback:', question.type);
         return (
-          <Textarea
-            placeholder="Please describe your thoughts..."
-            value={currentAnswer || ''}
-            onChange={(e) => setCurrentAnswer(e.target.value)}
-            className="min-h-[100px]"
-          />
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Please provide your response:</p>
+            <Textarea
+              placeholder="Please describe your thoughts..."
+              value={currentAnswer || ''}
+              onChange={(e) => setCurrentAnswer(e.target.value)}
+              className="min-h-[100px]"
+            />
+          </div>
         );
     }
   };
@@ -266,7 +276,36 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
     );
   }
 
+  // Safety check for current question
+  if (currentQuestionIndex >= questions.length) {
+    console.log('⚠️ Question index out of bounds:', currentQuestionIndex, 'Total questions:', questions.length);
+    return (
+      <div className="max-w-2xl mx-auto text-center">
+        <Card className="p-8">
+          <h2 className="text-xl font-bold mb-4">Assessment Complete</h2>
+          <p className="text-muted-foreground mb-6">
+            All questions have been completed. Processing your results...
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
   const currentQuestion = questions[currentQuestionIndex];
+  
+  // Additional safety check
+  if (!currentQuestion) {
+    console.log('⚠️ Current question is undefined at index:', currentQuestionIndex);
+    return (
+      <div className="max-w-2xl mx-auto text-center">
+        <Card className="p-8">
+          <h2 className="text-xl font-bold mb-4">Loading Question...</h2>
+          <p className="text-muted-foreground">Please wait while we load the next question.</p>
+        </Card>
+      </div>
+    );
+  }
+  
   const progress = (responses.length / totalQuestions) * 100;
 
   return (
@@ -284,6 +323,10 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
       <Card className="p-8">
         <div className="space-y-6">
           <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm font-medium text-primary">Question {responses.length + 1}</span>
+              <span className="text-xs text-muted-foreground">({currentQuestion.type})</span>
+            </div>
             <h2 className="text-xl font-bold mb-4">
               {currentQuestion?.question}
             </h2>
@@ -299,12 +342,16 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
             )}
           </div>
 
+          {/* Answer Input Section */}
+          <div className="bg-secondary/5 p-4 rounded-lg">
+            <h3 className="font-semibold mb-3">Your Answer:</h3>
           {currentQuestion && renderQuestionInput(currentQuestion)}
+          </div>
 
           {/* Optional reasoning */}
-          <div>
+          <div className="bg-muted/20 p-4 rounded-lg">
             <Label htmlFor="reasoning" className="text-sm font-medium">
-              Why did you choose this answer? (Optional)
+              💭 Why did you choose this answer? (Optional but recommended)
             </Label>
             <Textarea
               id="reasoning"
@@ -314,6 +361,13 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
               className="mt-2"
             />
           </div>
+
+          {/* Debug Info (only in development) */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="text-xs text-muted-foreground bg-muted/10 p-2 rounded">
+              <p>Debug: Question {currentQuestionIndex + 1}/{questions.length} | Type: {currentQuestion.type} | Answer: {JSON.stringify(currentAnswer)}</p>
+            </div>
+          )}
 
           <div className="flex justify-between">
             <Button

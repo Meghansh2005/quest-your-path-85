@@ -530,14 +530,14 @@ class GeminiService {
         type: 'multiple-choice' as const,
         options: ['Solving complex problems', 'Collaborating with team members', 'Creating innovative solutions', 'Achieving measurable results'],
         skillsAssessed: [skills[0] || 'motivation'],
-        difficultyLevel: 3
+        difficulty: 3
       },
       {
         id: `fallback_${timestamp}_2`,
         question: 'How confident are you in adapting to unexpected changes at work?',
         type: 'scale' as const,
         skillsAssessed: ['adaptability', 'confidence'],
-        difficultyLevel: 2
+        difficulty: 2
       },
       {
         id: `fallback_${timestamp}_3`,
@@ -545,7 +545,7 @@ class GeminiService {
         type: 'multiple-choice' as const,
         options: ['Facilitate a team discussion to find consensus', 'Research best practices and present findings', 'Suggest trying multiple approaches in parallel', 'Escalate to management for guidance'],
         skillsAssessed: ['leadership', 'communication', 'problem-solving'],
-        difficultyLevel: 4
+        difficulty: 4
       }
     ];
 
@@ -557,7 +557,7 @@ class GeminiService {
           type: 'multiple-choice' as const,
           options: ['Building relationships', 'Organizing workflows', 'Mentoring others', 'Driving results'],
           skillsAssessed: [skills[1] || 'teamwork'],
-          difficultyLevel: 3
+          difficulty: 3
         },
         {
           id: `fallback_${timestamp}_5`,
@@ -565,7 +565,7 @@ class GeminiService {
           type: 'multiple-choice' as const,
           options: ['Hands-on practice and experimentation', 'Structured courses and certifications', 'Learning from mentors and colleagues', 'Reading and self-directed research'],
           skillsAssessed: ['learning-style', 'self-development'],
-          difficultyLevel: 2
+          difficulty: 2
         }
       );
     }
@@ -575,6 +575,34 @@ class GeminiService {
     ];
   }
 
+  private getFallbackDeepDiveQuestions(topSkills: string[]): AdaptiveQuestion[] {
+    console.log('🔄 Using fallback deep-dive questions for skills:', topSkills);
+    const timestamp = Date.now();
+    
+    const deepQuestions: AdaptiveQuestion[] = [];
+    
+    // Generate 15 questions per skill
+    topSkills.forEach((skill, skillIndex) => {
+      for (let i = 0; i < 15; i++) {
+        deepQuestions.push({
+          id: `deep_fallback_${timestamp}_${skillIndex}_${i}`,
+          question: `Advanced ${skill} Question ${i + 1}: How would you rate your expertise in applying ${skill} in complex, high-stakes situations?`,
+          type: 'multiple-choice',
+          options: [
+            'Expert level - I can mentor others and handle any situation',
+            'Advanced - I\'m highly competent and confident',
+            'Intermediate - I can handle most situations with some guidance',
+            'Developing - I need more experience and support'
+          ],
+          skillsAssessed: [skill],
+          difficulty: 4
+        });
+      }
+    });
+    
+    console.log('✅ Generated', deepQuestions.length, 'fallback deep-dive questions');
+    return deepQuestions;
+  }
   private getFallbackAnalysis(skills: string[]): CareerAnalysis {
     return {
       skillPatterns: ['Strong analytical abilities', 'Good communication skills'],
@@ -754,6 +782,8 @@ Mix question types:
 - Leadership/soft skills integration (20%)
 - Market awareness questions (10%)
 
+CRITICAL: Every question MUST have the "options" array populated for multiple-choice and scenario questions.
+
 Return ONLY a JSON array with this exact structure:
 [{
   "id": "deep_dive_1",
@@ -779,18 +809,27 @@ Return ONLY a JSON array with this exact structure:
       console.log('📥 Generated 30 deep-dive questions');
       
       const questions = JSON.parse(text);
-      return questions.map((q: any, index: number) => ({
+      const processedQuestions = questions.map((q: any, index: number) => ({
         id: q.id || `deep_${index + 1}`,
         question: q.question,
         type: q.type || 'multiple-choice', 
-        options: q.options || ['Expert Level', 'Advanced', 'Intermediate', 'Novice'],
+        options: q.options && q.options.length > 0 ? q.options : [
+          'Strongly agree - I excel at this',
+          'Agree - I\'m competent in this area', 
+          'Neutral - I have some experience',
+          'Disagree - I need development here'
+        ],
         skillsAssessed: q.skillsAssessed || [topSkills[Math.floor(index / 15)]],
         difficulty: q.difficulty || 4,
         scenario: q.scenario
       }));
+      
+      console.log('✅ Processed questions with options:', processedQuestions.length);
+      return processedQuestions;
     } catch (error) {
       console.error('❌ Error generating deep-dive questions:', error);
-      return [];
+      // Return fallback deep-dive questions
+      return this.getFallbackDeepDiveQuestions(topSkills);
     }
   },
 
