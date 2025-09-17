@@ -14,6 +14,7 @@ interface AdaptiveQuizProps {
   onComplete: (responses: QuizResponse[]) => void;
   phase: 'initial' | 'deep-dive' | 'validation';
   totalQuestions: number;
+  useGeminiGeneration?: boolean;
 }
 
 export interface QuizResponse {
@@ -25,7 +26,7 @@ export interface QuizResponse {
   timestamp: Date;
 }
 
-export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions }: AdaptiveQuizProps) => {
+export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions, useGeminiGeneration = false }: AdaptiveQuizProps) => {
   const [questions, setQuestions] = useState<AdaptiveQuestion[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [currentAnswer, setCurrentAnswer] = useState<any>(null);
@@ -41,14 +42,20 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
   }, [selectedSkills, phase]);
 
   const loadInitialQuestions = async () => {
-    console.log('🔄 Loading initial questions for phase:', phase);
+    console.log('🔄 Loading questions for phase:', phase, 'Skills:', selectedSkills);
     setIsLoading(true);
     try {
-      const initialQuestions = await geminiService.generateAdaptiveQuestions(
-        selectedSkills,
-        responses,
-        phase
-      );
+      let initialQuestions: AdaptiveQuestion[] = [];
+      
+      if (useGeminiGeneration) {
+        if (phase === 'initial') {
+          // Generate 20 questions for selected skills
+          initialQuestions = await geminiService.generateInitialQuestions(selectedSkills);
+        } else if (phase === 'deep-dive') {
+          // Generate 30 questions for top 2 skills
+          initialQuestions = await geminiService.generateDeepDiveQuestions(selectedSkills, responses);
+        }
+      }
       
       if (initialQuestions && initialQuestions.length > 0) {
         console.log('✅ Loaded', initialQuestions.length, 'questions');
@@ -107,32 +114,9 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
       return;
     }
 
-    // Check if we need more questions
-    if (currentQuestionIndex + 1 >= questions.length) {
-      console.log('🔄 Need more questions, generating...');
-      try {
-        const nextQuestions = await geminiService.generateAdaptiveQuestions(
-          selectedSkills,
-          updatedResponses,
-          phase
-        );
-        
-        if (nextQuestions && nextQuestions.length > 0) {
-          console.log('✅ Generated', nextQuestions.length, 'additional questions');
-          setQuestions(prev => [...prev, ...nextQuestions]);
-        } else {
-          console.log('⚠️ No additional questions generated');
-        }
-      } catch (error) {
-        console.error('❌ Error generating additional questions:', error);
-        toast({
-          title: "Error",
-          description: "Failed to generate next question. Please try again.",
-          variant: "destructive",
-        });
-        setIsSubmitting(false);
-        return;
-      }
+    // For fixed question sets, don't generate more questions
+    if (currentQuestionIndex + 1 >= questions.length && useGeminiGeneration) {
+      console.log('⚠️ All questions completed, no more to generate');
     }
     
     // Move to next question

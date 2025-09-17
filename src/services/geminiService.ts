@@ -26,56 +26,46 @@ const SYSTEM_PROMPTS = {
     Include timelines and actionable steps.`
 };
 
+export interface QuizResponse {
+  questionId: string;
+  question: string;
+  answer: any;
+  reasoning?: string;
+  skillsAssessed: string[];
+  timestamp: Date;
+}
+
 export interface CareerAnalysis {
-  skillPatterns: string[];
+  overallScore: number;
+  topStrengths: string[];
+  skillGaps: string[];
   careerRecommendations: CareerRecommendation[];
-  skillGaps: SkillGap[];
-  learningPath: LearningStep[];
-  personalityProfile: PersonalityTrait[];
-  marketInsights: MarketInsight[];
+  developmentPlan: {
+    immediate: string[];
+    shortTerm: string[];
+    longTerm: string[];
+  };
+  marketInsights: {
+    demandLevel: string;
+    competitionLevel: string;
+    trendingSkills: string[];
+  };
+  skillPatterns?: string[];
+  learningPath?: any[];
+  personalityProfile?: any[];
 }
 
 export interface CareerRecommendation {
   title: string;
-  field: string;
-  matchScore: number;
+  match: number;
   description: string;
   salaryRange: string;
-  growthProspects: string;
-  requiredSkills: string[];
-  timeToTransition: string;
-}
-
-export interface SkillGap {
-  skill: string;
-  currentLevel: number;
-  requiredLevel: number;
-  priority: 'high' | 'medium' | 'low';
-  developmentTime: string;
-}
-
-export interface LearningStep {
-  skill: string;
-  action: string;
-  resources: string[];
-  timeline: string;
-  measurableOutcome: string;
-}
-
-export interface PersonalityTrait {
-  trait: string;
-  score: number;
-  description: string;
-  careerImplications: string[];
-}
-
-export interface MarketInsight {
-  industry: string;
-  demandLevel: string;
-  averageSalary: string;
-  growthRate: string;
-  keyTrends: string[];
-  emergingRoles: string[];
+  growthOutlook: string;
+  field?: string;
+  matchScore?: number;
+  growthProspects?: string;
+  requiredSkills?: string[];
+  timeToTransition?: string;
 }
 
 export interface AdaptiveQuestion {
@@ -84,9 +74,8 @@ export interface AdaptiveQuestion {
   type: 'multiple-choice' | 'scale' | 'scenario' | 'ranking';
   options?: string[];
   scenario?: string;
-  followUpTriggers?: string[];
   skillsAssessed: string[];
-  difficultyLevel: number;
+  difficulty: number;
 }
 
 class GeminiService {
@@ -647,7 +636,470 @@ class GeminiService {
   }
 }
 
-export const geminiService = new GeminiService();
+export const geminiService = {
+  // Generate initial 20 questions based on 5 selected skills
+  async generateInitialQuestions(selectedSkills: string[]): Promise<AdaptiveQuestion[]> {
+    try {
+      console.log('🚀 Generating 20 initial questions for skills:', selectedSkills);
+      
+      const prompt = `You are an expert career counselor. Generate exactly 20 assessment questions to evaluate a person's proficiency in these 5 skills: ${selectedSkills.join(', ')}.
+
+Create questions that will help identify which 2 skills are the person's strongest areas. Include:
+- 4 questions per skill (20 total)
+- Mix of multiple-choice, scenario-based, and scale questions
+- Questions that reveal both technical knowledge and practical application
+- Scenarios that test real-world problem-solving
+
+Return ONLY a JSON array with this exact structure:
+[{
+  "id": "skill_assessment_1",
+  "question": "detailed question text",
+  "type": "multiple-choice",
+  "options": ["option1", "option2", "option3", "option4"],
+  "skillsAssessed": ["primary_skill"],
+  "difficulty": 3,
+  "scenario": "context if applicable"
+}]`;
+
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      console.log('📥 Generated 20 questions');
+      
+      const questions = JSON.parse(text);
+      return questions.map((q: any, index: number) => ({
+        id: q.id || `initial_${index + 1}`,
+        question: q.question,
+        type: q.type || 'multiple-choice',
+        options: q.options || ['Strongly Agree', 'Agree', 'Neutral', 'Disagree'],
+        skillsAssessed: q.skillsAssessed || [selectedSkills[Math.floor(index / 4)]],
+        difficulty: q.difficulty || 3,
+        scenario: q.scenario
+      }));
+    } catch (error) {
+      console.error('❌ Error generating initial questions:', error);
+      return [];
+    }
+  },
+
+  // Analyze responses to find top 2 skills
+  async findTopSkills(responses: QuizResponse[]): Promise<string[]> {
+    try {
+      console.log('🔍 Analyzing responses to find top 2 skills');
+      
+      const responseData = responses.map(r => ({
+        question: r.question,
+        answer: r.answer,
+        skills: r.skillsAssessed,
+        reasoning: r.reasoning
+      }));
+
+      const prompt = `Analyze these quiz responses and identify the TOP 2 skills where the person shows the highest proficiency and confidence.
+
+Responses: ${JSON.stringify(responseData, null, 2)}
+
+Based on:
+- Answer quality and confidence
+- Consistency across related questions  
+- Practical knowledge demonstrated
+- Problem-solving approach
+
+Return ONLY a JSON array with the 2 strongest skills:
+["skill1", "skill2"]`;
+
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const topSkills = JSON.parse(response.text());
+      
+      console.log('✅ Top 2 skills identified:', topSkills);
+      return topSkills;
+    } catch (error) {
+      console.error('❌ Error finding top skills:', error);
+      return [];
+    }
+  },
+
+  // Generate 30 deep-dive questions for top 2 skills
+  async generateDeepDiveQuestions(topSkills: string[], previousResponses: QuizResponse[]): Promise<AdaptiveQuestion[]> {
+    try {
+      console.log('🎯 Generating 30 deep-dive questions for top skills:', topSkills);
+      
+      const prompt = `You are a senior career specialist. Generate exactly 30 advanced assessment questions focused on these 2 top skills: ${topSkills.join(' and ')}.
+
+Create questions that will:
+- Deeply evaluate expertise level (15 questions per skill)
+- Test advanced scenarios and edge cases
+- Assess leadership and mentoring capabilities
+- Evaluate market readiness and professional maturity
+- Include industry-specific challenges
+
+Mix question types:
+- Advanced scenario-based questions (40%)
+- Technical depth questions (30%) 
+- Leadership/soft skills integration (20%)
+- Market awareness questions (10%)
+
+Return ONLY a JSON array with this exact structure:
+[{
+  "id": "deep_dive_1",
+  "question": "advanced question text",
+  "type": "multiple-choice",
+  "options": ["expert_option1", "expert_option2", "expert_option3", "expert_option4"],
+  "skillsAssessed": ["primary_skill"],
+  "difficulty": 4,
+  "scenario": "professional context"
+}]`;
+
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      console.log('📥 Generated 30 deep-dive questions');
+      
+      const questions = JSON.parse(text);
+      return questions.map((q: any, index: number) => ({
+        id: q.id || `deep_${index + 1}`,
+        question: q.question,
+        type: q.type || 'multiple-choice', 
+        options: q.options || ['Expert Level', 'Advanced', 'Intermediate', 'Novice'],
+        skillsAssessed: q.skillsAssessed || [topSkills[Math.floor(index / 15)]],
+        difficulty: q.difficulty || 4,
+        scenario: q.scenario
+      }));
+    } catch (error) {
+      console.error('❌ Error generating deep-dive questions:', error);
+      return [];
+    }
+  },
+
+  // Generate comprehensive career analysis and recommendations
+  async analyzeCareerFit(
+    topSkills: string[],
+    allResponses: QuizResponse[],
+    userProfile: { name: string }
+  ): Promise<CareerAnalysis> {
+    try {
+      console.log('🤖 Generating comprehensive career analysis');
+      
+      const responseData = allResponses.map(r => ({
+        question: r.question,
+        answer: r.answer,
+        skills: r.skillsAssessed,
+        reasoning: r.reasoning
+      }));
+
+      const prompt = `You are a senior career strategist and industry analyst. Provide a comprehensive career analysis based on this in-depth assessment.
+
+User: ${userProfile.name}
+Top 2 Skills Identified: ${topSkills.join(' & ')}
+Total Assessment Responses: ${allResponses.length}
+Detailed Response Data: ${JSON.stringify(responseData, null, 2)}
+
+Provide a detailed analysis including:
+
+1. SKILL MASTERY ASSESSMENT (Rate 1-100)
+2. CAREER RECOMMENDATIONS with specific job titles, companies, and roles
+3. SALARY EXPECTATIONS with current market data
+4. INDUSTRY OUTLOOK and growth projections
+5. SKILL DEVELOPMENT ROADMAP with timeline
+6. PROFESSIONAL NETWORKING suggestions
+7. RISK ASSESSMENT and career stability factors
+
+Return ONLY this JSON structure:
+{
+  "overallScore": 90,
+  "topStrengths": ["detailed strength analysis"],
+  "skillGaps": ["specific gaps to address"],
+  "careerRecommendations": [
+    {
+      "title": "Senior Software Engineer", 
+      "match": 95,
+      "description": "Perfect match based on technical skills and problem-solving approach",
+      "salaryRange": "$120,000 - $180,000",
+      "growthOutlook": "Excellent - 22% growth expected",
+      "companies": ["Google", "Microsoft", "startups"],
+      "requirements": ["3+ years experience", "portfolio"],
+      "pros": ["high demand", "remote options"],
+      "cons": ["competitive", "continuous learning required"]
+    }
+  ],
+  "developmentPlan": {
+    "immediate": ["specific actions for next 30 days"],
+    "shortTerm": ["3-6 month goals with metrics"],
+    "longTerm": ["1-2 year career objectives"]
+  },
+  "marketInsights": {
+    "demandLevel": "Very High",
+    "competitionLevel": "High", 
+    "trendingSkills": ["emerging skills to learn"],
+    "industryTrends": ["market movements"],
+    "salaryTrends": "15% increase year-over-year"
+  },
+  "recommendation": "Strong recommendation to pursue this career path",
+  "confidence": 94,
+  "nextSteps": ["immediate action items"]
+}`;
+
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const analysis = JSON.parse(response.text());
+      
+      console.log('✅ Comprehensive career analysis generated');
+      
+      return {
+        overallScore: analysis.overallScore || 85,
+        topStrengths: analysis.topStrengths || topSkills,
+        skillGaps: analysis.skillGaps || ['Industry Knowledge', 'Networking'],
+        careerRecommendations: analysis.careerRecommendations || [],
+        developmentPlan: analysis.developmentPlan || {
+          immediate: ['Update resume', 'Build portfolio'],
+          shortTerm: ['Apply to positions', 'Expand network'],
+          longTerm: ['Advance to leadership', 'Specialize further']
+        },
+        marketInsights: analysis.marketInsights || {
+          demandLevel: 'High',
+          competitionLevel: 'Moderate',
+          trendingSkills: topSkills
+        },
+        skillPatterns: analysis.topStrengths || topSkills,
+        learningPath: [],
+        personalityProfile: []
+      };
+    } catch (error) {
+      console.error('❌ Error in career analysis:', error);
+      throw error;
+    }
+  },
+
+  async generateWorkplaceScenario(
+    fieldOfInterest: string,
+    userProfile: { name: string; previousResponses?: any[] },
+    previousScenarios: string[] = []
+  ): Promise<any> {
+    try {
+      console.log('🎭 Generating workplace scenario for:', fieldOfInterest);
+      
+      const prompt = `You are a senior career coach specializing in ${fieldOfInterest}. Create a realistic workplace scenario that will reveal key skills and personality traits.
+
+Field: ${fieldOfInterest}
+User: ${userProfile.name}
+Previous scenarios to avoid: ${previousScenarios.join('; ')}
+
+Create a professional scenario that:
+1. Tests decision-making skills
+2. Reveals leadership potential
+3. Shows problem-solving approach
+4. Demonstrates industry knowledge
+5. Assesses communication style
+
+Return ONLY this JSON structure:
+{
+  "scenario": "Brief scenario title",
+  "context": "Detailed background situation (2-3 sentences)",
+  "challenge": "The specific problem or decision needed (1-2 sentences)",
+  "options": [
+    {
+      "id": "option_1",
+      "text": "First response option (detailed approach)",
+      "skills": ["skill1", "skill2", "skill3"],
+      "personality": ["trait1", "trait2"]
+    },
+    {
+      "id": "option_2", 
+      "text": "Second response option",
+      "skills": ["skill1", "skill2"],
+      "personality": ["trait1", "trait2"]
+    },
+    {
+      "id": "option_3",
+      "text": "Third response option", 
+      "skills": ["skill1", "skill2"],
+      "personality": ["trait1", "trait2"]
+    },
+    {
+      "id": "option_4",
+      "text": "Fourth response option",
+      "skills": ["skill1", "skill2"], 
+      "personality": ["trait1", "trait2"]
+    }
+  ],
+  "followUpQuestions": ["reflection question 1", "reflection question 2"]
+}`;
+
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const scenario = JSON.parse(response.text());
+      
+      console.log('✅ Workplace scenario generated');
+      return scenario;
+    } catch (error) {
+      console.error('❌ Error generating workplace scenario:', error);
+      throw error;
+    }
+  },
+
+  async analyzeScenarioResponses(
+    fieldOfInterest: string,
+    responses: any[]
+  ): Promise<any> {
+    try {
+      console.log('📊 Analyzing scenario responses for:', fieldOfInterest);
+      
+      const responseData = responses.map(r => ({
+        scenario: r.scenario,
+        choice: r.selectedOption,
+        reasoning: r.reasoning
+      }));
+
+      const prompt = `Analyze these workplace scenario responses to provide comprehensive career insights for ${fieldOfInterest}.
+
+Scenario Responses: ${JSON.stringify(responseData, null, 2)}
+
+Provide detailed analysis including:
+1. Leadership style assessment
+2. Problem-solving approach
+3. Communication preferences  
+4. Decision-making patterns
+5. Career fit for ${fieldOfInterest}
+6. Salary expectations and market outlook
+7. Specific recommendations and next steps
+
+Return ONLY this JSON structure:
+{
+  "overallScore": 85,
+  "leadershipStyle": "Collaborative Leader",
+  "problemSolvingApproach": "Analytical and methodical",
+  "communicationStyle": "Direct but diplomatic",
+  "decisionMakingPattern": "Data-driven with stakeholder input",
+  "careerFit": {
+    "match": 90,
+    "reasoning": "Strong alignment with field requirements",
+    "salaryRange": "$75,000 - $120,000",
+    "growthOutlook": "Excellent prospects"
+  },
+  "recommendedRoles": [
+    {
+      "title": "Senior Project Manager",
+      "match": 95,
+      "description": "Perfect fit based on leadership and communication skills"
+    }
+  ],
+  "developmentAreas": ["specific skill to improve"],
+  "nextSteps": ["immediate action items"],
+  "marketInsights": {
+    "demandLevel": "High",
+    "competitionLevel": "Moderate"
+  }
+}`;
+
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const analysis = JSON.parse(response.text());
+      
+      console.log('✅ Scenario analysis complete');
+      return analysis;
+    } catch (error) {
+      console.error('❌ Error analyzing scenario responses:', error);
+      throw error;
+    }
+  },
+
+  async testGeminiAPI(): Promise<{ success: boolean; error?: string; questionsCount?: number }> {
+    try {
+      console.log('🧪 Testing Gemini API connection...');
+      
+      const testPrompt = `Generate 3 simple career assessment questions. Return ONLY this JSON:
+{
+  "questions": [
+    {
+      "id": "test_1",
+      "question": "What motivates you most at work?",
+      "type": "multiple-choice",
+      "options": ["Achievement", "Collaboration", "Learning", "Impact"]
+    },
+    {
+      "id": "test_2", 
+      "question": "How do you prefer to solve problems?",
+      "type": "multiple-choice",
+      "options": ["Research first", "Brainstorm ideas", "Try solutions", "Ask others"]
+    },
+    {
+      "id": "test_3",
+      "question": "What work environment suits you best?",
+      "type": "multiple-choice", 
+      "options": ["Quiet space", "Team setting", "Flexible location", "Structured office"]
+    }
+  ]
+}`;
+
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const result = await model.generateContent(testPrompt);
+      const response = await result.response;
+      const data = JSON.parse(response.text());
+      
+      console.log('✅ Gemini API test successful');
+      return {
+        success: true,
+        questionsCount: data.questions?.length || 0
+      };
+    } catch (error) {
+      console.error('❌ Gemini API test failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+};
 
 // Test API connectivity on initialization
 console.log('🚀 Gemini Service initialized with API key:', API_KEY.substring(0, 10) + '...');
