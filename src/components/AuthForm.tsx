@@ -9,6 +9,7 @@ interface AuthFormProps {
   onSubmit: (data: AuthFormData) => Promise<void>;
   onToggleMode: () => void;
   loading?: boolean;
+  showHeader?: boolean;
 }
 
 interface AuthFormData {
@@ -17,7 +18,7 @@ interface AuthFormData {
   password: string;
 }
 
-export const AuthForm = ({ mode, onSubmit, onToggleMode, loading = false }: AuthFormProps) => {
+export const AuthForm = ({ mode, onSubmit, onToggleMode, loading = false, showHeader = true }: AuthFormProps) => {
   const [formData, setFormData] = useState<AuthFormData>({
     name: '',
     email: '',
@@ -88,17 +89,19 @@ export const AuthForm = ({ mode, onSubmit, onToggleMode, loading = false }: Auth
       
       <div className="p-8 relative z-10">
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold mb-3 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-              {mode === 'login' ? 'Welcome Back' : 'Join Career Quest'}
-            </h2>
-            <p className="text-muted-foreground text-lg">
-              {mode === 'login' 
-                ? 'Sign in to continue your career journey' 
-                : 'Create your account to start discovering your career path'
-              }
-            </p>
-          </div>
+          {showHeader && (
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-bold mb-3 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+                {mode === 'login' ? 'Welcome Back' : 'Join Career Quest'}
+              </h2>
+              <p className="text-muted-foreground text-lg">
+                {mode === 'login' 
+                  ? 'Sign in to continue your career journey' 
+                  : 'Create your account to start discovering your career path'
+                }
+              </p>
+            </div>
+          )}
           
           <div className="space-y-4">
             {mode === 'signup' && (

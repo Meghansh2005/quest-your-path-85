@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { QuestCard } from "@/components/QuestCard";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
 import talentsImage from "@/assets/talents-path.jpg";
 import scenariosImage from "@/assets/scenarios-path.jpg";
 
@@ -13,12 +14,30 @@ interface PathSelectionProps {
 export const PathSelection = ({ userName, onSelectPath, onBack }: PathSelectionProps) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+  const { logout } = useAuth();
 
   useEffect(() => {
     setIsLoaded(true);
   }, []);
+
+  const handleLogout = () => {
+    logout();
+    onBack(); // This will take them back to the landing page
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Logout button in top-right corner */}
+      <div className="absolute top-4 right-4 z-20">
+        <Button
+          variant="outline"
+          onClick={handleLogout}
+          className="border-border/50 hover:border-destructive/50 hover:bg-destructive/5 hover:text-destructive transition-all duration-300 px-4 py-2 rounded-xl backdrop-blur-sm bg-background/80"
+        >
+          Logout
+        </Button>
+      </div>
+
       {/* Background decorative elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-20 w-60 h-60 bg-primary/5 rounded-full blur-3xl animate-pulse-glow" />

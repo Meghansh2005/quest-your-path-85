@@ -127,6 +127,7 @@ export const Landing = ({ onStart }: LandingProps) => {
                 mode={authMode} 
                 onSubmit={handleAuth}
                 onToggleMode={toggleAuthMode}
+                showHeader={false}
               />
               
               {/* Decorative elements */}
