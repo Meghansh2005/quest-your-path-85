@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Landing } from "./Landing";
 import { PathSelection } from "./PathSelection";
 import { TalentsPath } from "./TalentsPath";
@@ -8,10 +9,16 @@ type Screen = "landing" | "path-selection" | "talents" | "scenarios";
 
 const Index = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>("landing");
-  const [userName, setUserName] = useState("");
+  const { user, logout } = useAuth();
 
-  const handleStart = (name: string) => {
-    setUserName(name);
+  // Auto-navigate to path selection when user becomes authenticated
+  useEffect(() => {
+    if (user && currentScreen === "landing") {
+      setCurrentScreen("path-selection");
+    }
+  }, [user, currentScreen]);
+
+  const handleStart = () => {
     setCurrentScreen("path-selection");
   };
 
@@ -21,22 +28,27 @@ const Index = () => {
 
   const handleBackToLanding = () => {
     setCurrentScreen("landing");
-    setUserName("");
+    logout(); // Log out the user when going back to landing
   };
 
   const handleBackToPathSelection = () => {
     setCurrentScreen("path-selection");
   };
 
+  // Show landing page if user is not authenticated
+  if (!user) {
+    return (
+      <main className="min-h-screen">
+        <Landing onStart={handleStart} />
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen">
-      {currentScreen === "landing" && (
-        <Landing onStart={handleStart} />
-      )}
-      
       {currentScreen === "path-selection" && (
         <PathSelection
-          userName={userName}
+          userName={user.name}
           onSelectPath={handleSelectPath}
           onBack={handleBackToLanding}
         />
@@ -44,14 +56,14 @@ const Index = () => {
       
       {currentScreen === "talents" && (
         <TalentsPath
-          userName={userName}
+          userName={user.name}
           onBack={handleBackToPathSelection}
         />
       )}
       
       {currentScreen === "scenarios" && (
         <ScenariosPath
-          userName={userName}
+          userName={user.name}
           onBack={handleBackToPathSelection}
         />
       )}

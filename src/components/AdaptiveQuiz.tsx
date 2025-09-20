@@ -38,6 +38,12 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
 
   // Load initial questions
   useEffect(() => {
+    console.log('🎬 AdaptiveQuiz useEffect triggered with:', {
+      phase,
+      selectedSkills,
+      useGeminiGeneration,
+      totalQuestions
+    });
     loadInitialQuestions();
   }, [selectedSkills, phase]);
 
@@ -50,10 +56,32 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
       if (useGeminiGeneration) {
         if (phase === 'initial') {
           // Generate 20 questions for selected skills
+          console.log('🎯 Generating initial questions for skills:', selectedSkills);
           initialQuestions = await geminiService.generateInitialQuestions(selectedSkills);
         } else if (phase === 'deep-dive') {
           // Generate 30 questions for top 2 skills
-          initialQuestions = await geminiService.generateDeepDiveQuestions(selectedSkills, responses);
+          console.log('🎯 Generating deep-dive questions for top skills:', selectedSkills);
+          initialQuestions = await geminiService.generateDeepDiveQuestions(selectedSkills, []);
+        }
+      } else {
+        // Use fallback questions when Gemini generation is disabled
+        console.log('🔄 Using fallback questions for phase:', phase);
+        if (phase === 'deep-dive') {
+          initialQuestions = geminiService.getFallbackDeepDiveQuestions(selectedSkills);
+        } else if (phase === 'initial') {
+          initialQuestions = geminiService.getFallbackInitialQuestions(selectedSkills);
+        } else {
+          // Generate basic fallback questions for other phases
+          initialQuestions = [
+            {
+              id: `fallback_basic_1`,
+              question: `How confident are you with ${selectedSkills[0] || 'your main skill'}?`,
+              type: 'multiple-choice' as const,
+              options: ['Very confident', 'Somewhat confident', 'Not very confident', 'Need more experience'],
+              skillsAssessed: [selectedSkills[0] || 'general'],
+              difficulty: 2
+            }
+          ];
         }
       }
       
@@ -61,20 +89,62 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
         console.log('✅ Loaded', initialQuestions.length, 'questions');
         setQuestions(initialQuestions);
       } else {
-        console.log('⚠️ No questions received, showing error');
-        toast({
-          title: "Loading Error",
-          description: "Unable to load questions. Please refresh and try again.",
-          variant: "destructive",
-        });
+        console.log('⚠️ No questions received, trying fallback...');
+        // Try fallback as last resort
+        const fallbackQuestions = phase === 'deep-dive' 
+          ? geminiService.getFallbackDeepDiveQuestions(selectedSkills)
+          : phase === 'initial'
+          ? geminiService.getFallbackInitialQuestions(selectedSkills)
+          : [
+              {
+                id: 'emergency_fallback_1',
+                question: 'Rate your overall confidence in your professional skills',
+                type: 'multiple-choice' as const,
+                options: ['Excellent', 'Good', 'Average', 'Needs improvement'],
+                skillsAssessed: ['general'],
+                difficulty: 2
+              }
+            ];
+        
+        if (fallbackQuestions.length > 0) {
+          console.log('✅ Using emergency fallback questions:', fallbackQuestions.length);
+          setQuestions(fallbackQuestions);
+        } else {
+          toast({
+            title: "Loading Error",
+            description: "Unable to load questions. Please refresh and try again.",
+            variant: "destructive",
+          });
+        }
       }
     } catch (error) {
       console.error('❌ Error loading questions:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load questions. Please try again.",
-        variant: "destructive",
-      });
+      // Try emergency fallback even on error
+      const emergencyQuestions = phase === 'deep-dive'
+        ? geminiService.getFallbackDeepDiveQuestions(selectedSkills)
+        : phase === 'initial'
+        ? geminiService.getFallbackInitialQuestions(selectedSkills)
+        : [
+            {
+              id: 'error_fallback_1',
+              question: 'How do you rate your problem-solving abilities?',
+              type: 'multiple-choice' as const,
+              options: ['Excellent', 'Good', 'Average', 'Developing'],
+              skillsAssessed: ['problem-solving'],
+              difficulty: 2
+            }
+          ];
+      
+      if (emergencyQuestions.length > 0) {
+        console.log('✅ Using emergency questions after error:', emergencyQuestions.length);
+        setQuestions(emergencyQuestions);
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to load questions. Please try again.",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -189,7 +259,6 @@ export const AdaptiveQuiz = ({ selectedSkills, onComplete, phase, totalQuestions
                   <RadioGroupItem value={option} id={`scenario-${index}`} />
                   <Label htmlFor={`scenario-${index}`} className="cursor-pointer flex-1 text-sm leading-relaxed">
                     <span className="font-medium">{String.fromCharCode(65 + index)}.</span> {option}
-                    {option}
                   </Label>
                 </div>
               ))}

@@ -8,6 +8,8 @@ interface QuestCardProps {
   variant?: "default" | "primary" | "secondary";
   disabled?: boolean;
   style?: React.CSSProperties;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }
 
 export const QuestCard = ({ 
@@ -16,7 +18,9 @@ export const QuestCard = ({
   className, 
   variant = "default",
   disabled = false,
-  style
+  style,
+  onMouseEnter,
+  onMouseLeave
 }: QuestCardProps) => {
   const variants = {
     default: "quest-card",
@@ -33,6 +37,8 @@ export const QuestCard = ({
         className
       )}
       onClick={!disabled ? onClick : undefined}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       style={style}
     >
       {children}

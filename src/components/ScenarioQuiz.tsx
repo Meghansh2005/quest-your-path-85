@@ -49,11 +49,50 @@ export const ScenarioQuiz = ({ fieldOfInterest, userName, onComplete }: Scenario
       setCurrentScenario(scenario);
       setScenarioCount(1);
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to generate scenario. Please try again.",
-        variant: "destructive",
-      });
+      console.error('Error generating scenario:', error);
+      
+      // Check if it's a quota exceeded error
+      if (error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('exceeded')) {
+        toast({
+          title: "AI Quota Reached",
+          description: "We've reached our daily AI limit. Using pre-designed scenarios to continue your assessment.",
+          variant: "default",
+        });
+        
+        // Generate fallback scenario immediately
+        try {
+          const fallbackScenario = geminiService.getFallbackScenario(fieldOfInterest);
+          setCurrentScenario(fallbackScenario);
+          setScenarioCount(1);
+        } catch (fallbackError) {
+          console.error('Fallback scenario generation failed:', fallbackError);
+          toast({
+            title: "Error",
+            description: "Unable to generate scenarios. Please try again later.",
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Connection Issue",
+          description: "Having trouble connecting to AI services. Using offline scenarios to continue.",
+          variant: "default",
+        });
+        
+        // Try fallback scenario for any other error
+        try {
+          const fallbackScenario = geminiService.getFallbackScenario(fieldOfInterest);
+          setCurrentScenario(fallbackScenario);
+          setScenarioCount(1);
+        } catch (fallbackError) {
+          console.error('Fallback scenario generation failed:', fallbackError);
+          toast({
+            title: "Error",
+            description: "Unable to generate scenarios. Please try again later.",
+            variant: "destructive",
+          });
+        }
+      }
     } finally {
       setIsLoading(false);
     }
@@ -108,11 +147,38 @@ export const ScenarioQuiz = ({ fieldOfInterest, userName, onComplete }: Scenario
       setSelectedOption("");
       setReasoning("");
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to generate next scenario. Please try again.",
-        variant: "destructive",
-      });
+      console.error('Error generating next scenario:', error);
+      
+      // Check if it's a quota exceeded error
+      if (error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('exceeded')) {
+        toast({
+          title: "AI Quota Reached",
+          description: "Continuing with pre-designed scenarios.",
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "Connection Issue", 
+          description: "Using offline scenarios to continue your assessment.",
+          variant: "default",
+        });
+      }
+      
+      // Use fallback scenario
+      try {
+        const fallbackScenario = geminiService.getFallbackScenario(fieldOfInterest);
+        setCurrentScenario(fallbackScenario);
+        setScenarioCount(prev => prev + 1);
+        setSelectedOption("");
+        setReasoning("");
+      } catch (fallbackError) {
+        console.error('Fallback scenario failed:', fallbackError);
+        toast({
+          title: "Error",
+          description: "Unable to continue. Please try again.",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsGeneratingNext(false);
     }
