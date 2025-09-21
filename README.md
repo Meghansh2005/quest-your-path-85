@@ -2,6 +2,8 @@
 
 🎯 **Discover your ideal career path through AI-powered assessments and interactive quizzes**
 
+🚀 **[Live Demo](https://career-quest-4utr.vercel.app/)** | 📖 **[Lovable Project](https://lovable.dev/projects/fe20eb83-89fe-44a8-8d41-9ed4eb0715ac)**
+
 Quest Your Path is an innovative web application that helps users discover their ideal career direction through two distinctive assessment paths: **Talents Path** and **Scenarios Path**. Using advanced AI integration with Google's Generative AI, the platform provides personalized career recommendations, skill assessments, and actionable development plans.
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
@@ -13,6 +15,7 @@ Quest Your Path is an innovative web application that helps users discover their
 ## 🌟 Features
 
 ### 🎯 Talents Path
+
 - **Skill Selection**: Choose from 15 different skill categories
 - **Adaptive Quizzing**: Two-phase quiz system with 50+ questions
 - **AI-Powered Analysis**: Personalized career recommendations based on responses
@@ -20,12 +23,14 @@ Quest Your Path is an innovative web application that helps users discover their
 - **Industry Data**: Real job listings and salary information
 
 ### 🏢 Scenarios Path
+
 - **Field-Specific Scenarios**: AI-generated workplace situations
 - **Decision-Making Assessment**: Multiple-choice scenarios that reveal work style
 - **Personality Profiling**: Understand your professional personality
 - **Custom Analysis**: Field-specific insights based on your area of interest
 
 ### 🚀 Core Features
+
 - **User Authentication**: Secure login system with JWT tokens
 - **Responsive Design**: Mobile-first design with dark mode support
 - **Progress Tracking**: Visual progress bars and completion tracking
@@ -35,6 +40,7 @@ Quest Your Path is an innovative web application that helps users discover their
 ## 🛠️ Technology Stack
 
 ### Frontend
+
 - **Framework**: React 18 with TypeScript
 - **Build Tool**: Vite 5.4+ for fast development and building
 - **Styling**: Tailwind CSS 3.4+ with PostCSS
@@ -45,6 +51,7 @@ Quest Your Path is an innovative web application that helps users discover their
 - **Animations**: Tailwind CSS Animate
 
 ### AI & Backend Services
+
 - **AI Integration**: Google Generative AI (Gemini) 0.24+
 - **Database Ready**: MongoDB integration template (see MONGODB_SETUP.md)
 - **Authentication**: JWT-based auth service
@@ -52,6 +59,7 @@ Quest Your Path is an innovative web application that helps users discover their
 - **Notifications**: Sonner toast notifications
 
 ### Development Tools
+
 - **Linting**: ESLint with TypeScript support
 - **Type Checking**: TypeScript 5.8+
 - **Package Manager**: npm
@@ -60,6 +68,7 @@ Quest Your Path is an innovative web application that helps users discover their
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Node.js (16.x or higher)
 - npm or yarn
 - Git
@@ -153,7 +162,7 @@ JWT_SECRET=your_jwt_secret_here
 ### For Users
 
 1. **Sign Up/Login**: Create an account or log in to access assessments
-2. **Choose Your Path**: 
+2. **Choose Your Path**:
    - **Talents Path**: Focus on skill-based career matching
    - **Scenarios Path**: Explore through workplace situation analysis
 3. **Complete Assessment**: Answer adaptive questions tailored to your choices
@@ -163,12 +172,14 @@ JWT_SECRET=your_jwt_secret_here
 ### Assessment Flow
 
 #### Talents Path
+
 1. Select 5 skills from 15 available options
 2. Complete Phase 1: Initial assessment (25 questions)
 3. Complete Phase 2: Deep-dive assessment (25 questions)
 4. Receive AI-analyzed results with career matches
 
 #### Scenarios Path
+
 1. Enter your field of interest
 2. Complete AI-generated workplace scenarios
 3. Make decisions based on realistic situations
@@ -177,12 +188,14 @@ JWT_SECRET=your_jwt_secret_here
 ## 🧪 Features in Detail
 
 ### AI-Powered Assessment Engine
+
 - **Adaptive Questioning**: Questions adapt based on previous responses
 - **Field-Specific Scenarios**: Industry-relevant workplace situations
 - **Comprehensive Analysis**: Multi-dimensional career fit analysis
 - **Real-Time Processing**: Instant AI analysis and recommendations
 
 ### Assessment Results Include
+
 - **Career Recommendations**: Top 3-5 matched career paths
 - **Skill Gap Analysis**: Identified areas for development
 - **Learning Pathways**: Structured development plans
@@ -190,6 +203,7 @@ JWT_SECRET=your_jwt_secret_here
 - **Personality Profile**: Work style and behavioral insights
 
 ### Security & Performance
+
 - **Secure Authentication**: JWT-based user sessions
 - **API Key Protection**: Environment-based configuration
 - **Error Handling**: Comprehensive fallback mechanisms
@@ -230,6 +244,7 @@ This project is proprietary software. All rights reserved.
 ## 🆘 Support
 
 For support and questions:
+
 - Check the [Issues](../../issues) page
 - Review [MONGODB_SETUP.md](MONGODB_SETUP.md) for database setup
 - Consult the inline code documentation
@@ -237,11 +252,13 @@ For support and questions:
 ## 🚀 Deployment
 
 ### Via Lovable Platform
+
 1. Visit [Lovable Project](https://lovable.dev/projects/fe20eb83-89fe-44a8-8d41-9ed4eb0715ac)
 2. Click **Share → Publish**
 3. Configure custom domain if needed
 
 ### Manual Deployment
+
 ```bash
 # Build for production
 npm run build
@@ -251,6 +268,7 @@ npm run build
 ```
 
 ### Custom Domain Setup
+
 1. Navigate to Project > Settings > Domains in Lovable
 2. Click **Connect Domain**
 3. Follow the DNS configuration instructions
@@ -259,4 +277,4 @@ npm run build
 
 **Made with ❤️ using React, TypeScript, and AI**
 
-*Quest Your Path - Empowering career discovery through intelligent assessments*
+_Quest Your Path - Empowering career discovery through intelligent assessments_
