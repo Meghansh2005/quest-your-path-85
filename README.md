@@ -2,7 +2,7 @@
 
 🎯 **Discover your ideal career path through AI-powered assessments and interactive quizzes**
 
-🚀 **[Live Demo](https://career-quest-4utr.vercel.app/)** | 📖 **[Lovable Project](https://lovable.dev/projects/fe20eb83-89fe-44a8-8d41-9ed4eb0715ac)**
+🚀 **[Live Demo](https://career-quest-4utr.vercel.app/)** 
 
 Quest Your Path is an innovative web application that helps users discover their ideal career direction through two distinctive assessment paths: **Talents Path** and **Scenarios Path**. Using advanced AI integration with Google's Generative AI, the platform provides personalized career recommendations, skill assessments, and actionable development plans.
 
