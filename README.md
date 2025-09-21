@@ -174,8 +174,8 @@ JWT_SECRET=your_jwt_secret_here
 #### Talents Path
 
 1. Select 5 skills from 15 available options
-2. Complete Phase 1: Initial assessment (25 questions)
-3. Complete Phase 2: Deep-dive assessment (25 questions)
+2. Complete Phase 1: Initial assessment (20 questions)
+3. Complete Phase 2: Deep-dive assessment (30 questions)
 4. Receive AI-analyzed results with career matches
 
 #### Scenarios Path
