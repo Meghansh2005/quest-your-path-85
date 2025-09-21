@@ -249,14 +249,6 @@ For support and questions:
 - Review [MONGODB_SETUP.md](MONGODB_SETUP.md) for database setup
 - Consult the inline code documentation
 
-## 🚀 Deployment
-
-### Via Lovable Platform
-
-1. Visit [Lovable Project](https://lovable.dev/projects/fe20eb83-89fe-44a8-8d41-9ed4eb0715ac)
-2. Click **Share → Publish**
-3. Configure custom domain if needed
-
 ### Manual Deployment
 
 ```bash
@@ -266,15 +258,8 @@ npm run build
 # Deploy the dist/ folder to your hosting provider
 # The built files will be in the dist/ directory
 ```
-
-### Custom Domain Setup
-
-1. Navigate to Project > Settings > Domains in Lovable
-2. Click **Connect Domain**
-3. Follow the DNS configuration instructions
-
 ---
 
-**Made with ❤️ using React, TypeScript, and AI**
+**Made with ❤️ using React, TypeScript
 
 _Quest Your Path - Empowering career discovery through intelligent assessments_
