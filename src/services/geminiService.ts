@@ -1,13 +1,91 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Add validation for API key
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+/**
+ * Environment Variable Configuration
+ * 
+ * Vite automatically loads environment variables from .env files.
+ * Required format in .env.local:
+ *   VITE_GEMINI_API_KEY=your_api_key_here
+ * 
+ * Variables prefixed with VITE_ are exposed to the client.
+ * Make sure to restart the dev server after modifying .env.local
+ */
+
+// Get API key from environment variables
+const getApiKey = (): string | undefined => {
+  // Check in order of priority: explicit env, then import.meta.env
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  
+  // Debug info (only in development)
+  if (import.meta.env.DEV) {
+    const envKeys = Object.keys(import.meta.env).filter(key => key.startsWith('VITE_'));
+    if (envKeys.length === 0) {
+      console.warn('⚠️  No VITE_ prefixed environment variables found');
+      console.warn('   Make sure your .env.local file is in the project root');
+      console.warn('   and contains: VITE_GEMINI_API_KEY=your_key');
+    }
+  }
+  
+  return apiKey;
+};
+
+// Validate API key format (Gemini API keys typically start with 'AIza')
+const validateApiKey = (key: string | undefined): boolean => {
+  if (!key) return false;
+  if (typeof key !== 'string') return false;
+  if (key.trim().length === 0) return false;
+  
+  // Basic format check (Gemini keys usually start with AIza)
+  // This is a soft check - we allow any non-empty string
+  return key.trim().length >= 10; // Minimum reasonable length
+};
+
+// Get and validate API key
+const API_KEY = getApiKey();
+
+// Enhanced error handling and validation
 if (!API_KEY) {
-  console.error('❌ VITE_GEMINI_API_KEY not found in environment variables');
-  console.error('Please set VITE_GEMINI_API_KEY in your .env.local file');
+  const errorMessage = `
+❌ VITE_GEMINI_API_KEY not found in environment variables
+
+📋 Troubleshooting Steps:
+1. Create or edit .env.local file in the project root (CareerQuest folder)
+2. Add this line (replace with your actual key):
+   VITE_GEMINI_API_KEY=your_actual_api_key_here
+3. Make sure:
+   - No spaces around the = sign
+   - No quotes (unless your key has spaces, which it shouldn't)
+   - The variable starts with VITE_ prefix
+4. Restart your dev server (stop with Ctrl+C, then npm run dev)
+
+🔑 Get your API key from: https://makersuite.google.com/app/apikey
+
+💡 Note: Environment variables are only loaded when Vite starts.
+   You must restart the dev server after modifying .env.local
+`;
+  console.error(errorMessage);
+  throw new Error('VITE_GEMINI_API_KEY is required. Please set it in .env.local file.');
 }
 
+if (!validateApiKey(API_KEY)) {
+  console.warn('⚠️  Warning: API key format may be invalid');
+  console.warn(`   Key length: ${API_KEY.length} characters`);
+  console.warn('   Expected format: Should be a valid Gemini API key');
+}
+
+// Log success in development mode only (don't expose in production)
+if (import.meta.env.DEV) {
+  console.log('✅ Gemini API Key loaded successfully');
+  console.log(`   Key format: ${API_KEY.substring(0, 10)}...${API_KEY.substring(API_KEY.length - 4)}`);
+}
+
+// Initialize Google Generative AI client
 const genAI = new GoogleGenerativeAI(API_KEY);
+
+// Export helper function to check if API is configured
+export const isGeminiConfigured = (): boolean => {
+  return !!API_KEY && validateApiKey(API_KEY);
+};
 
 // System prompts for different analysis types
 const SYSTEM_PROMPTS = {
