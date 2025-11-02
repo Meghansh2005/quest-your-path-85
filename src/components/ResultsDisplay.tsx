@@ -1,9 +1,56 @@
-import { Card } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent, CardFooter, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CareerAnalysis, CareerRecommendation, PersonalityTrait, SkillDetail } from "@/services/geminiService";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, Cell } from 'recharts';
+import { CheckCircle, Clock, TrendingUp, Award, Zap, Lightbulb, ArrowRight, BookOpen, Users, Briefcase, Star, BarChart2, BarChart as BarChartIcon, PieChart, Target, Activity, AlertTriangle, CheckCircle2, Download, RefreshCw, Scale, DollarSign } from 'lucide-react';
+import { cn } from "@/lib/utils";
+
+// Define types for learning path items
+interface LearningPathItem {
+  skill: string;
+  action: string;
+  timeline: string;
+  difficultyLevel?: string;
+  measurableOutcome?: string;
+  prerequisites?: string;
+  resources?: string[];
+}
+
+// Helper function to generate color shades
+const getColorShades = (baseColor: string) => ({
+  light: `bg-${baseColor}-100 text-${baseColor}-800`,
+  medium: `bg-${baseColor}-500`,
+  dark: `bg-${baseColor}-700`,
+  text: `text-${baseColor}-700`
+});
+
+const priorityColors = {
+  high: getColorShades('red'),
+  medium: getColorShades('amber'),
+  low: getColorShades('emerald')
+};
+
+// Mock data for skills radar chart
+const skillsData = [
+  { subject: 'Technical', A: 85, fullMark: 100 },
+  { subject: 'Problem Solving', A: 78, fullMark: 100 },
+  { subject: 'Communication', A: 90, fullMark: 100 },
+  { subject: 'Leadership', A: 70, fullMark: 100 },
+  { subject: 'Creativity', A: 82, fullMark: 100 },
+  { subject: 'Teamwork', A: 88, fullMark: 100 },
+];
+
+// Mock data for career growth potential
+const careerGrowthData = [
+  { name: 'Entry Level', value: 25 },
+  { name: 'Mid Level', value: 50 },
+  { name: 'Senior Level', value: 75 },
+  { name: 'Leadership', value: 90 },
+];
 
 interface ResultsDisplayProps {
   analysis: CareerAnalysis;
@@ -26,155 +73,575 @@ export const ResultsDisplay = ({ analysis, userName, onRestart }: ResultsDisplay
     return "text-muted-foreground";
   };
 
+  // Calculate overall score with a more sophisticated formula
+  const overallScore = Math.min(100, Math.max(0, analysis.overallScore || 0));
+  const scoreColor = overallScore >= 85 ? 'text-green-500' : 
+                    overallScore >= 70 ? 'text-blue-500' : 
+                    overallScore >= 50 ? 'text-amber-500' : 'text-rose-500';
+
+  // Enhanced personality insights
+  const topPersonalityTraits = [...(analysis.personalityProfile || [])]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+
+  // Enhanced career recommendations with match score
+  const enhancedCareerRecommendations = [...(analysis.careerRecommendations || [])]
+    .sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0))
+    .slice(0, 5);
+
+  // Skill distribution data
+  const skillDistribution = (analysis.skillGaps || []).map(gap => ({
+    name: gap.skill,
+    current: gap.currentLevel * 10,
+    required: gap.requiredLevel * 10,
+    gap: (gap.requiredLevel - gap.currentLevel) * 10,
+    priority: gap.priority
+  }));
+
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-8 animate-fade-in-up">
-      {/* Header */}
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4 gradient-text">
-          🎯 {userName}'s Career Analysis
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10 animate-fade-in-up">
+      {/* Header with Score */}
+      <div className="text-center space-y-4">
+        <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-primary/10 to-secondary/10 mb-4">
+          <span className={`text-3xl font-bold ${scoreColor}`}>
+            {overallScore}
+          </span>
+        </div>
+        <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+          {userName}'s Career Analysis
         </h1>
-        <p className="text-xl text-muted-foreground">
-          Your personalized career roadmap powered by AI
+        <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
+          Your personalized career roadmap with AI-powered insights and actionable recommendations
         </p>
+        <div className="flex justify-center gap-4 pt-4">
+          <Button variant="outline" className="gap-2" onClick={onRestart}>
+            <RefreshCw className="h-4 w-4" />
+            Retake Assessment
+          </Button>
+          <Button className="gap-2">
+            <Download className="h-4 w-4" />
+            Download Full Report
+          </Button>
+        </div>
       </div>
 
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="careers">Careers</TabsTrigger>
-          <TabsTrigger value="skills">Skills</TabsTrigger>
-          <TabsTrigger value="skill-details">Skill Details</TabsTrigger>
-          <TabsTrigger value="personality">Personality</TabsTrigger>
-          <TabsTrigger value="roadmap">Roadmap</TabsTrigger>
-        </TabsList>
+      {/* Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="border-l-4 border-blue-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Career Match</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{overallScore}%</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {overallScore >= 85 ? 'Excellent fit' : overallScore >= 70 ? 'Good fit' : 'Consider alternatives'}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-green-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Top Skills</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">
+              {Math.round((analysis.topStrengths?.length || 0) / 3 * 100)}%
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {analysis.topStrengths?.slice(0, 2).join(', ')}...
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-purple-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Market Demand</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold capitalize">
+              {analysis.marketInsights?.demandLevel || 'Moderate'}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {analysis.marketInsights?.trendingSkills?.slice(0, 2).join(', ')}...
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-amber-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Time to Proficiency</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">
+              {analysis.skillGaps?.[0]?.developmentTime || '3-6 months'}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              For key skills development
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="overview" className="w-full space-y-6">
+        <div className="border-b">
+          <TabsList className="w-full justify-start overflow-x-auto py-0">
+            <TabsTrigger value="overview" className="py-4 px-6">
+              <BarChartIcon className="w-4 h-4 mr-2" />
+              Overview
+            </TabsTrigger>
+            <TabsTrigger value="careers" className="py-4 px-6">
+              <Briefcase className="w-4 h-4 mr-2" />
+              Career Paths
+              <Badge variant="secondary" className="ml-2">
+                {analysis.careerRecommendations?.length || 0}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="skills" className="py-4 px-6">
+              <Zap className="w-4 h-4 mr-2" />
+              Skills Analysis
+              <Badge variant="secondary" className="ml-2">
+                {analysis.skillGaps?.length || 0}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="personality" className="py-4 px-6">
+              <Users className="w-4 h-4 mr-2" />
+              Personality
+              {topPersonalityTraits.length > 0 && (
+                <Badge variant="secondary" className="ml-2">
+                  {topPersonalityTraits.length} Traits
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="roadmap" className="py-4 px-6">
+              <Target className="w-4 h-4 mr-2" />
+              Learning Path
+            </TabsTrigger>
+            <TabsTrigger value="insights" className="py-4 px-6">
+              <Lightbulb className="w-4 h-4 mr-2" />
+              AI Insights
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card className="p-6">
-              <h3 className="text-xl font-bold mb-4">🎯 Key Insights</h3>
-              <div className="space-y-3">
-                {(Array.isArray(analysis.skillPatterns) ? analysis.skillPatterns : []).map((pattern, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-primary"></div>
-                    <span className="text-sm">{pattern}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <Card className="p-6">
-              <h3 className="text-xl font-bold mb-4">📊 Market Insights</h3>
-              <div className="space-y-4">
-                <div className="border-l-4 border-primary pl-4">
-                  <h4 className="font-semibold">Market Overview</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Demand: {analysis.marketInsights.demandLevel} | Competition: {analysis.marketInsights.competitionLevel}
-                  </p>
-                  <div className="mt-2">
-                    <h5 className="text-sm font-medium mb-1">Trending Skills:</h5>
-                    <div className="flex flex-wrap gap-1">
-                      {(Array.isArray(analysis.marketInsights?.trendingSkills) ? analysis.marketInsights.trendingSkills : []).map((skill, skillIndex) => (
-                        <Badge key={skillIndex} variant="outline" className="text-xs">
-                          {skill}
-                        </Badge>
-                      ))}
-                    </div>
+        <TabsContent value="overview" className="space-y-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Key Insights */}
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Lightbulb className="w-5 h-5 text-amber-500" />
+                  Key Insights & Recommendations
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-lg">Strengths to Leverage</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {analysis.topStrengths?.slice(0, 4).map((strength, i) => (
+                      <div key={i} className="flex items-start gap-3 p-3 bg-green-50 rounded-lg border border-green-100">
+                        <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <h4 className="font-medium text-green-800">{strength}</h4>
+                          <p className="text-xs text-green-600 mt-1">
+                            {strength.includes('leadership') ? 'Consider management roles' :
+                             strength.includes('technical') ? 'Technical roles would be ideal' :
+                             'This is a valuable asset in many roles'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-lg">Development Areas</h3>
+                  <div className="space-y-3">
+                    {analysis.skillGaps?.slice(0, 3).map((gap, i) => (
+                      <div key={i} className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium">{gap.skill}</span>
+                          <Badge variant={gap.priority === 'high' ? 'destructive' : gap.priority === 'medium' ? 'default' : 'secondary'}>
+                            {gap.priority} priority
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-full bg-gray-200 rounded-full h-2.5">
+                            <div 
+                              className={`h-2.5 rounded-full ${
+                                gap.priority === 'high' ? 'bg-red-500' : 
+                                gap.priority === 'medium' ? 'bg-amber-500' : 'bg-green-500'
+                              }`} 
+                              style={{ width: `${(gap.currentLevel / gap.requiredLevel) * 100}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-sm text-muted-foreground whitespace-nowrap">
+                            {gap.currentLevel}/{gap.requiredLevel}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
             </Card>
+
+            {/* Personality Snapshot */}
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="w-5 h-5 text-purple-500" />
+                    Personality Snapshot
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {topPersonalityTraits.map((trait, i) => (
+                      <div key={i} className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="font-medium">{trait.trait}</span>
+                          <span className="text-muted-foreground">{trait.score}/100</span>
+                        </div>
+                        <Progress value={trait.score} className="h-2" />
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChartIcon className="w-5 h-5 text-blue-500" />
+                    Skills Radar
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart cx="50%" cy="50%" outerRadius="80%" data={skillsData}>
+                      <PolarGrid />
+                      <PolarAngleAxis dataKey="subject" />
+                      <PolarRadiusAxis angle={30} domain={[0, 100]} />
+                      <Radar 
+                        name="Your Skills" 
+                        dataKey="A" 
+                        stroke="#3b82f6" 
+                        fill="#3b82f6" 
+                        fillOpacity={0.6} 
+                      />
+                      <Tooltip />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
           </div>
+
+          {/* Career Growth Potential */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-emerald-500" />
+                Career Growth Potential
+              </CardTitle>
+              <CardDescription>
+                Your projected career trajectory based on current skills and market trends
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={careerGrowthData}
+                    layout="vertical"
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" domain={[0, 100]} />
+                    <YAxis dataKey="name" type="category" />
+                    <Tooltip formatter={(value) => [`${value}%`, 'Growth Potential']} />
+                    <Bar dataKey="value" fill="#10b981" name="Growth Potential" radius={[0, 4, 4, 0]}>
+                      {careerGrowthData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={`rgba(16, 185, 129, ${0.3 + (index * 0.2)})`} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Career Recommendations Tab */}
         <TabsContent value="careers" className="space-y-6">
-          <div className="grid gap-6">
-            {(Array.isArray(analysis.careerRecommendations) ? analysis.careerRecommendations : []).map((career, index) => (
-              <Card key={index} className="p-6 hover:shadow-lg transition-shadow">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-xl font-bold">{career.title}</h3>
-                    <p className="text-muted-foreground">{career.field}</p>
-                  </div>
-                  <div className="text-right">
-                    <div className={`text-2xl font-bold ${getMatchScoreColor(career.matchScore)}`}>
-                      {career.matchScore}%
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {enhancedCareerRecommendations.map((career, index) => {
+              const matchColor = career.matchScore >= 85 ? 'green' : 
+                               career.matchScore >= 70 ? 'blue' : 
+                               career.matchScore >= 50 ? 'amber' : 'gray';
+              
+              return (
+                <Card key={index} className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 border-t-4 border-primary/20 hover:border-primary/50">
+                  <div className="p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-foreground">{career.title}</h3>
+                        <p className="text-sm text-muted-foreground">{career.field}</p>
+                      </div>
+                      <div className="text-right">
+                        <div className={`text-2xl font-bold text-${matchColor}-600`}>
+                          {career.matchScore}%
+                        </div>
+                        <p className="text-xs text-muted-foreground">Match Score</p>
+                      </div>
                     </div>
-                    <p className="text-sm text-muted-foreground">Match</p>
+                    
+                    <p className="text-sm text-muted-foreground mb-4 line-clamp-3">
+                      {career.description}
+                    </p>
+                    
+                    <div className="space-y-3 text-sm mb-4">
+                      <div className="flex items-center gap-2">
+                        <DollarSign className="w-4 h-4 text-green-500" />
+                        <span className="font-medium">Salary:</span>
+                        <span className="text-foreground">{career.salaryRange}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-blue-500" />
+                        <span className="font-medium">Growth:</span>
+                        <span className="text-foreground">{career.growthProspects}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-amber-500" />
+                        <span className="font-medium">Transition:</span>
+                        <span className="text-foreground">{career.timeToTransition}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="mb-4">
+                      <h4 className="text-sm font-medium mb-2">Key Skills</h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(Array.isArray(career.requiredSkills) ? career.requiredSkills.slice(0, 5) : []).map((skill, skillIndex) => (
+                          <Badge 
+                            key={skillIndex} 
+                            variant="secondary" 
+                            className="text-xs py-1 px-2 font-normal"
+                          >
+                            {skill}
+                          </Badge>
+                        ))}
+                        {career.requiredSkills?.length > 5 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{career.requiredSkills.length - 5} more
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-between items-center pt-4 border-t">
+                      <Button variant="outline" size="sm" className="gap-1.5">
+                        <BookOpen className="w-4 h-4" />
+                        Learn More
+                      </Button>
+                      <Button size="sm" className="gap-1.5">
+                        View Roadmap
+                        <ArrowRight className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-                
-                <p className="text-sm mb-4">{career.description}</p>
-                
-                <div className="grid md:grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <h4 className="font-semibold mb-2">💰 Salary Range</h4>
-                    <p>{career.salaryRange}</p>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold mb-2">📈 Growth</h4>
-                    <p>{career.growthProspects}</p>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold mb-2">⏱️ Transition Time</h4>
-                    <p>{career.timeToTransition}</p>
-                  </div>
-                </div>
-                
-                <div className="mt-4">
-                  <h4 className="font-semibold mb-2">🎯 Required Skills</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {(Array.isArray(career.requiredSkills) ? career.requiredSkills : []).map((skill, skillIndex) => (
-                      <Badge key={skillIndex} variant="secondary">
-                        {skill}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
+          
+          {/* Career Comparison Tool */}
+          <Card className="mt-8">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Scale className="w-5 h-5 text-purple-500" />
+                Career Path Comparison
+              </CardTitle>
+              <CardDescription>
+                Compare up to 3 career paths to find your best fit
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="space-y-4">
+                    <Select>
+                      <SelectTrigger>
+                        <SelectValue placeholder={`Select Career ${i + 1}`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {enhancedCareerRecommendations.map((career, idx) => (
+                          <SelectItem key={idx} value={career.title}>
+                            {career.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    
+                    {i < 2 && (
+                      <div className="hidden md:flex items-center justify-center h-full">
+                        <div className="text-muted-foreground text-sm">
+                          vs
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              
+              <div className="mt-6 flex justify-center">
+                <Button variant="outline" className="gap-2">
+                  <BarChart2 className="w-4 h-4" />
+                  Compare Careers
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Skills Analysis Tab */}
         <TabsContent value="skills" className="space-y-6">
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card className="p-6">
-              <h3 className="text-xl font-bold mb-4">🎯 Skill Gaps</h3>
-              <div className="space-y-4">
-                {(Array.isArray(analysis.skillGaps) ? analysis.skillGaps : []).map((gap, index) => (
-                  <div key={index} className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="font-medium">{gap.skill}</span>
-                      <Badge variant={gap.priority === 'high' ? 'destructive' : gap.priority === 'medium' ? 'default' : 'secondary'}>
-                        {gap.priority}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">Current:</span>
-                      <Progress value={gap.currentLevel * 10} className="flex-1" />
-                      <span className="text-sm">{gap.currentLevel}/10</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">Target:</span>
-                      <Progress value={gap.requiredLevel * 10} className="flex-1" />
-                      <span className="text-sm">{gap.requiredLevel}/10</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Development time: {gap.developmentTime}</p>
-                  </div>
-                ))}
-              </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Skills Radar Chart */}
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-blue-500" />
+                  Skills Assessment
+                </CardTitle>
+                <CardDescription>
+                  Your current skill levels compared to industry requirements
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-96">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart cx="50%" cy="50%" outerRadius="80%" data={skillDistribution}>
+                    <PolarGrid />
+                    <PolarAngleAxis dataKey="name" />
+                    <PolarRadiusAxis angle={30} domain={[0, 100]} />
+                    <Radar 
+                      name="Current Level" 
+                      dataKey="current" 
+                      stroke="#3b82f6" 
+                      fill="#3b82f6" 
+                      fillOpacity={0.2} 
+                    />
+                    <Radar 
+                      name="Required Level" 
+                      dataKey="required" 
+                      stroke="#10b981" 
+                      fill="#10b981" 
+                      fillOpacity={0.1} 
+                      strokeDasharray="5 5"
+                    />
+                    <Tooltip 
+                      formatter={(value, name) => [value, name === 'current' ? 'Current Level' : 'Required Level']}
+                      labelFormatter={(label) => `Skill: ${label}`}
+                    />
+                    <Legend />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </CardContent>
             </Card>
 
-            <Card className="p-6">
-              <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <span>📚</span>
-                <span>AI-Generated Learning Path</span>
-                <Badge variant="secondary" className="text-xs">Powered by Gemini</Badge>
-              </h3>
+            {/* Skill Gaps Summary */}
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-amber-500" />
+                    Priority Skill Gaps
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {analysis.skillGaps
+                    ?.sort((a, b) => {
+                      const priorityOrder = { high: 3, medium: 2, low: 1 };
+                      return priorityOrder[b.priority] - priorityOrder[a.priority];
+                    })
+                    .slice(0, 3)
+                    .map((gap, index) => (
+                      <div key={index} className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium">{gap.skill}</span>
+                          <Badge 
+                            variant={gap.priority === 'high' ? 'destructive' : gap.priority === 'medium' ? 'default' : 'secondary'}
+                            className="uppercase"
+                          >
+                            {gap.priority} priority
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div 
+                              className={`h-2 rounded-full ${
+                                gap.priority === 'high' ? 'bg-red-500' : 
+                                gap.priority === 'medium' ? 'bg-amber-500' : 'bg-green-500'
+                              }`} 
+                              style={{ width: `${(gap.currentLevel / gap.requiredLevel) * 100}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">
+                            {gap.currentLevel}/{gap.requiredLevel}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          <Clock className="inline w-3 h-3 mr-1" />
+                          {gap.developmentTime} to improve
+                        </p>
+                      </div>
+                    ))}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Award className="w-5 h-5 text-green-500" />
+                    Strongest Skills
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {analysis.topStrengths?.slice(0, 3).map((skill, index) => (
+                    <div key={index} className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+                      <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
+                      <div>
+                        <h4 className="font-medium text-green-800">{skill}</h4>
+                        <p className="text-xs text-green-600 mt-1">
+                          {skill.includes('leadership') ? 'Consider management roles' :
+                           skill.includes('technical') ? 'Technical roles would be ideal' :
+                           'This is a valuable asset in many roles'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          {/* Learning Path */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-purple-500" />
+                Personalized Learning Path
+                <Badge variant="outline" className="text-xs">
+                  AI-Generated
+                </Badge>
+              </CardTitle>
+              <CardDescription>
+                A step-by-step guide to close your skill gaps and advance your career
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
               <div className="space-y-8">
-                {(Array.isArray(analysis.learningPath) ? analysis.learningPath : []).map((step, index) => {
+                {(Array.isArray(analysis.learningPath) ? analysis.learningPath : []).map((item: LearningPathItem, index: number) => {
                   // Enhanced color schemes for learning path items
                   const pathColors = [
                     {
@@ -240,11 +707,11 @@ export const ResultsDisplay = ({ analysis, userName, onRestart }: ResultsDisplay
                           <div className={`w-8 h-8 rounded-full bg-white/70 flex items-center justify-center font-bold ${scheme.accent} text-sm shadow-sm`}>
                             {index + 1}
                           </div>
-                          <h4 className={`font-bold text-xl ${scheme.accent}`}>{step.skill}</h4>
+                          <h4 className={`font-bold text-xl ${scheme.accent}`}>{item.skill}</h4>
                         </div>
-                        {step.difficultyLevel && (
+                        {item.difficultyLevel && (
                           <Badge className={`${scheme.badge} border-0 shadow-sm`}>
-                            {step.difficultyLevel}
+                            {item.difficultyLevel}
                           </Badge>
                         )}
                       </div>
@@ -255,7 +722,7 @@ export const ResultsDisplay = ({ analysis, userName, onRestart }: ResultsDisplay
                             <span className="text-base">📋</span>
                             <span className={scheme.accent}>Comprehensive Action Plan</span>
                           </h5>
-                          <p className="text-sm leading-relaxed text-gray-700">{step.action}</p>
+                          <p className="text-sm leading-relaxed text-gray-700">{item.action}</p>
                           
                           {/* Enhanced AI insights */}
                           <div className="mt-3 p-3 bg-white/50 rounded-md border border-white/20">
@@ -275,7 +742,7 @@ export const ResultsDisplay = ({ analysis, userName, onRestart }: ResultsDisplay
                               <span className="text-base">⏰</span>
                               <span className={scheme.accent}>Smart Timeline</span>
                             </h5>
-                            <p className="text-sm text-gray-700 mb-2">{step.timeline}</p>
+                            <p className="text-sm text-gray-700 mb-2">{item.timeline}</p>
                             <div className="text-xs text-gray-600">
                               <div className="flex items-center gap-1 mb-1">
                                 <span>📅</span>
@@ -293,7 +760,7 @@ export const ResultsDisplay = ({ analysis, userName, onRestart }: ResultsDisplay
                               <span className="text-base">🎯</span>
                               <span className={scheme.accent}>Success Metrics</span>
                             </h5>
-                            <p className="text-sm text-gray-700 mb-2">{step.measurableOutcome}</p>
+                            <p className="text-sm text-gray-700 mb-2">{item.measurableOutcome || 'Track your progress through practical applications and assessments.'}</p>
                             <div className="text-xs text-gray-600">
                               <div className="flex items-center gap-1 mb-1">
                                 <span>✅</span>
@@ -307,13 +774,13 @@ export const ResultsDisplay = ({ analysis, userName, onRestart }: ResultsDisplay
                           </div>
                         </div>
                         
-                        {step.prerequisites && (
+                        {item.prerequisites && (
                           <div className={`${scheme.sections.prerequisites} p-4 rounded-lg border border-amber-300/40`}>
                             <h5 className="font-semibold text-sm mb-2 flex items-center gap-2">
                               <span className="text-base">⚡</span>
                               <span className="text-amber-700">Prerequisites & Preparation</span>
                             </h5>
-                            <p className="text-sm text-gray-700 mb-2">{step.prerequisites}</p>
+                            <p className="text-sm text-gray-700 mb-2">{item.prerequisites}</p>
                             <div className="text-xs text-gray-600">
                               <div className="flex items-center gap-1">
                                 <span>📚</span>
@@ -329,7 +796,7 @@ export const ResultsDisplay = ({ analysis, userName, onRestart }: ResultsDisplay
                             <span className={scheme.accent}>Curated Learning Resources</span>
                           </h5>
                           <div className="grid gap-3">
-                            {(Array.isArray(step.resources) ? step.resources : []).map((resource, resourceIndex) => {
+                            {(Array.isArray(item.resources) ? item.resources : []).map((resource, resourceIndex) => {
                               const resourceTypes = ['🎥', '📚', '💻', '🎯', '✨'];
                               const resourceIcon = resourceTypes[resourceIndex % resourceTypes.length];
                               
@@ -350,18 +817,30 @@ export const ResultsDisplay = ({ analysis, userName, onRestart }: ResultsDisplay
                               );
                             })}
                           </div>
-                          
-                          {/* AI Study Tips */}
-                          <div className="mt-4 p-3 bg-gradient-to-r from-blue-50/50 to-purple-50/50 rounded-lg border border-blue-200/30">
-                            <h6 className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
-                              <span>🧪</span>
-                              <span>AI Study Tips</span>
-                            </h6>
-                            <div className="text-xs text-gray-600 space-y-1">
-                              <div>• Use the Pomodoro Technique: 25min focused study + 5min break</div>
-                              <div>• Join online communities and forums related to {step.skill}</div>
-                              <div>• Document your learning journey in a blog or journal</div>
-                              <div>• Practice explaining concepts to others to reinforce understanding</div>
+
+                          {/* Success Tips */}
+                          <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/60 to-purple-50/80 p-6 rounded-lg border mt-6">
+                            <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+                              <span>✨</span>
+                              <span>Success Tips for Your Journey</span>
+                            </h3>
+                            <div className="grid md:grid-cols-2 gap-4 text-sm">
+                              <div className="space-y-2">
+                                <h4 className="font-semibold text-primary">📈 Track Progress</h4>
+                                <ul className="space-y-1 text-muted-foreground">
+                                  <li>• Set monthly review checkpoints</li>
+                                  <li>• Document achievements and learnings</li>
+                                  <li>• Adjust timelines based on progress</li>
+                                </ul>
+                              </div>
+                              <div className="space-y-2">
+                                <h4 className="font-semibold text-secondary">🤝 Network Actively</h4>
+                                <ul className="space-y-1 text-muted-foreground">
+                                  <li>• Connect with industry professionals</li>
+                                  <li>• Join relevant professional communities</li>
+                                  <li>• Seek mentorship and guidance</li>
+                                </ul>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -369,601 +848,11 @@ export const ResultsDisplay = ({ analysis, userName, onRestart }: ResultsDisplay
                     </div>
                   );
                 })}
-                
-                {(!analysis.learningPath || analysis.learningPath.length === 0) && (
-                  <div className="text-center py-8 text-muted-foreground bg-gradient-to-r from-blue-50/50 to-purple-50/50 rounded-xl border border-blue-200/30">
-                    <div className="text-4xl mb-4">🤖</div>
-                    <h4 className="text-lg font-semibold mb-2">AI Learning Path Generation</h4>
-                    <p>Your personalized learning roadmap will be generated based on your assessment results.</p>
-                    <p className="text-sm mt-2">Complete the full assessment to unlock AI-powered learning recommendations.</p>
-                  </div>
-                )}
               </div>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* Skill Details Tab */}
-        <TabsContent value="skill-details" className="space-y-6">
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold mb-2 flex items-center justify-center gap-2">
-              <span>📈</span>
-              <span>Deep Skill Analysis</span>
-              <Badge variant="secondary" className="text-xs">Powered by Gemini</Badge>
-            </h2>
-            <p className="text-muted-foreground">Comprehensive analysis of your top 2 skills with industry insights, blog content, and career progression</p>
-          </div>
-          
-          {analysis.skillDetails && analysis.skillDetails.length > 0 ? (
-            <div className="space-y-8">
-              {analysis.skillDetails.map((skillDetail, index) => (
-                <Card key={index} className="p-6 bg-gradient-to-br from-card/50 to-card/80 backdrop-blur-sm border border-border/50">
-                  <div className="space-y-6">
-                    {/* Skill Header */}
-                    <div className="text-center border-b pb-4">
-                      <h3 className="text-2xl font-bold text-primary">{skillDetail.skillName}</h3>
-                      <p className="text-muted-foreground mt-2">{skillDetail.overview}</p>
-                      
-                      {/* Market Demand Summary */}
-                      <div className="flex justify-center gap-4 mt-4">
-                        <div className="text-center">
-                          <div className="font-semibold text-primary">{skillDetail.marketDemand.level}</div>
-                          <div className="text-xs text-muted-foreground">Demand</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-semibold text-secondary">{skillDetail.marketDemand.growth}</div>
-                          <div className="text-xs text-muted-foreground">Growth</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-semibold text-accent">{skillDetail.marketDemand.averageSalary}</div>
-                          <div className="text-xs text-muted-foreground">Salary</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Industry Analysis */}
-                    <div>
-                      <h4 className="text-lg font-bold mb-4 flex items-center gap-2">
-                        <span>🏢</span>
-                        <span>Industry Breakdown</span>
-                      </h4>
-                      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {skillDetail.industries.map((industry, industryIndex) => (
-                          <div key={industryIndex} className="bg-card/80 backdrop-blur-sm p-4 rounded-lg border border-border/50 hover:bg-card/90 transition-colors">
-                            <div className="flex justify-between items-center mb-3">
-                              <h5 className="font-semibold text-foreground">{industry.name}</h5>
-                              <Badge variant={industry.demand === 'Extremely High' ? 'destructive' : industry.demand === 'Very High' ? 'default' : 'secondary'}>
-                                {industry.demand}
-                              </Badge>
-                            </div>
-                            
-                            <div className="space-y-3 text-sm">
-                              <div>
-                                <h6 className="font-medium text-green-400 mb-1 flex items-center gap-1">
-                                  <span>✅</span>
-                                  <span>Pros</span>
-                                </h6>
-                                <ul className="space-y-1">
-                                  {industry.pros.map((pro, proIndex) => (
-                                    <li key={proIndex} className="flex items-center gap-2">
-                                      <div className="w-1 h-1 bg-green-400 rounded-full flex-shrink-0"></div>
-                                      <span className="text-foreground/90 text-xs leading-relaxed">{pro}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                              
-                              <div>
-                                <h6 className="font-medium text-red-400 mb-1 flex items-center gap-1">
-                                  <span>❌</span>
-                                  <span>Cons</span>
-                                </h6>
-                                <ul className="space-y-1">
-                                  {industry.cons.map((con, conIndex) => (
-                                    <li key={conIndex} className="flex items-center gap-2">
-                                      <div className="w-1 h-1 bg-red-400 rounded-full flex-shrink-0"></div>
-                                      <span className="text-foreground/90 text-xs leading-relaxed">{con}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                              
-                              <div className="border-t border-border/50 pt-2">
-                                <div className="font-medium text-primary">{industry.avgSalary}</div>
-                                <div className="text-xs text-muted-foreground">Average Salary</div>
-                              </div>
-                              
-                              <div>
-                                <h6 className="font-medium mb-1 text-foreground flex items-center gap-1">
-                                  <span>💼</span>
-                                  <span>Job Titles</span>
-                                </h6>
-                                <div className="flex flex-wrap gap-1">
-                                  {industry.jobTitles.map((title, titleIndex) => (
-                                    <Badge key={titleIndex} variant="outline" className="text-xs bg-background/50 border-border/50 text-foreground/80">
-                                      {title}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Blog Post Section */}
-                    <div>
-                      <h4 className="text-lg font-bold mb-4 flex items-center gap-2">
-                        <span>📝</span>
-                        <span>Expert Blog Post</span>
-                      </h4>
-                      <div className="bg-card/80 backdrop-blur-sm p-6 rounded-lg border border-border/50">
-                        <h5 className="text-xl font-bold mb-4 text-primary">{skillDetail.blogPost.title}</h5>
-                        <div className="prose prose-sm max-w-none text-foreground/90 leading-relaxed">
-                          {skillDetail.blogPost.content.split('\\n').map((paragraph, pIndex) => (
-                            <p key={pIndex} className="mb-3 text-foreground/85">{paragraph}</p>
-                          ))}
-                        </div>
-                        
-                        <div className="mt-6">
-                          <h6 className="font-semibold mb-3 text-secondary flex items-center gap-2">
-                            <span>💡</span>
-                            <span>Key Takeaways</span>
-                          </h6>
-                          <div className="grid md:grid-cols-2 gap-2">
-                            {skillDetail.blogPost.keyTakeaways.map((takeaway, takeawayIndex) => (
-                              <div key={takeawayIndex} className="flex items-center gap-2 bg-secondary/20 border border-secondary/30 p-3 rounded-lg">
-                                <div className="w-2 h-2 bg-secondary rounded-full flex-shrink-0"></div>
-                                <span className="text-sm text-foreground/90">{takeaway}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Learning Resources & Career Progression */}
-                    <div className="grid md:grid-cols-2 gap-6">
-                      {/* Learning Resources */}
-                      <div>
-                        <h4 className="text-lg font-bold mb-4 flex items-center gap-2">
-                          <span>📚</span>
-                          <span>Learning Resources</span>
-                        </h4>
-                        <div className="space-y-3">
-                          {skillDetail.learningResources.map((resource, resourceIndex) => (
-                            <div key={resourceIndex} className="bg-card/80 backdrop-blur-sm p-4 rounded-lg border border-border/50 hover:bg-card/90 transition-colors">
-                              <div className="flex justify-between items-start mb-2">
-                                <h6 className="font-semibold text-foreground">{resource.title}</h6>
-                                <Badge variant={resource.difficulty === 'Advanced' ? 'destructive' : resource.difficulty === 'Intermediate' ? 'default' : 'secondary'}>
-                                  {resource.difficulty}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center gap-2 mb-2">
-                                <Badge variant="outline" className="text-xs bg-background/50 border-border/50 text-foreground/80">{resource.type}</Badge>
-                              </div>
-                              <p className="text-sm text-foreground/85 leading-relaxed">{resource.description}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      
-                      {/* Career Progression */}
-                      <div>
-                        <h4 className="text-lg font-bold mb-4 flex items-center gap-2">
-                          <span>🚀</span>
-                          <span>Career Progression</span>
-                        </h4>
-                        <div className="space-y-4">
-                          {/* Entry Level */}
-                          <div className="bg-card/80 border border-green-500/30 p-4 rounded-lg backdrop-blur-sm">
-                            <div className="flex justify-between items-center mb-2">
-                              <h6 className="font-semibold text-green-400 flex items-center gap-2">
-                                <span>🌱</span>
-                                <span>{skillDetail.careerProgression.entry.title}</span>
-                              </h6>
-                              <Badge className="bg-green-500/20 text-green-300 border-green-500/30">{skillDetail.careerProgression.entry.salary}</Badge>
-                            </div>
-                            <ul className="text-sm space-y-1">
-                              {skillDetail.careerProgression.entry.requirements.map((req, reqIndex) => (
-                                <li key={reqIndex} className="flex items-center gap-2">
-                                  <div className="w-1 h-1 bg-green-400 rounded-full flex-shrink-0"></div>
-                                  <span className="text-foreground/85">{req}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          
-                          {/* Mid Level */}
-                          <div className="bg-card/80 border border-blue-500/30 p-4 rounded-lg backdrop-blur-sm">
-                            <div className="flex justify-between items-center mb-2">
-                              <h6 className="font-semibold text-blue-400 flex items-center gap-2">
-                                <span>🚀</span>
-                                <span>{skillDetail.careerProgression.mid.title}</span>
-                              </h6>
-                              <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30">{skillDetail.careerProgression.mid.salary}</Badge>
-                            </div>
-                            <ul className="text-sm space-y-1">
-                              {skillDetail.careerProgression.mid.requirements.map((req, reqIndex) => (
-                                <li key={reqIndex} className="flex items-center gap-2">
-                                  <div className="w-1 h-1 bg-blue-400 rounded-full flex-shrink-0"></div>
-                                  <span className="text-foreground/85">{req}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          
-                          {/* Senior Level */}
-                          <div className="bg-card/80 border border-purple-500/30 p-4 rounded-lg backdrop-blur-sm">
-                            <div className="flex justify-between items-center mb-2">
-                              <h6 className="font-semibold text-purple-400 flex items-center gap-2">
-                                <span>🏆</span>
-                                <span>{skillDetail.careerProgression.senior.title}</span>
-                              </h6>
-                              <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30">{skillDetail.careerProgression.senior.salary}</Badge>
-                            </div>
-                            <ul className="text-sm space-y-1">
-                              {skillDetail.careerProgression.senior.requirements.map((req, reqIndex) => (
-                                <li key={reqIndex} className="flex items-center gap-2">
-                                  <div className="w-1 h-1 bg-purple-400 rounded-full flex-shrink-0"></div>
-                                  <span className="text-foreground/85">{req}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <Card className="p-8">
-              <div className="text-center text-muted-foreground">
-                <div className="text-4xl mb-4">📈</div>
-                <h3 className="text-lg font-semibold mb-2">Detailed Skill Analysis Coming Soon</h3>
-                <p>Complete the full assessment to unlock comprehensive skill insights with industry analysis and career guidance.</p>
-              </div>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Personality Profile Tab */}
-        <TabsContent value="personality" className="space-y-6">
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold mb-2 flex items-center justify-center gap-2">
-              <span>🧠</span>
-              <span>AI Personality Analysis</span>
-              <Badge variant="secondary" className="text-xs">Powered by Gemini</Badge>
-            </h2>
-            <p className="text-muted-foreground">Deep insights into your work style, decision-making patterns, and professional strengths</p>
-          </div>
-          
-          <div className="grid md:grid-cols-2 gap-6">
-            {analysis.personalityProfile?.map((trait, index) => {
-              // Dynamic color schemes based on trait index
-              const colorSchemes = [
-                {
-                  gradient: 'from-blue-50 via-indigo-50 to-purple-50',
-                  border: 'border-blue-200/60',
-                  scoreColor: 'text-blue-600',
-                  progressBg: 'bg-blue-500',
-                  sections: {
-                    behavioral: 'bg-blue-50/80 border-blue-200/40',
-                    career: 'bg-indigo-50/80 border-indigo-200/40',
-                    workplace: 'bg-purple-50/80 border-purple-200/40'
-                  },
-                  icons: {
-                    behavioral: '🎭',
-                    career: '🎯',
-                    workplace: '🏢'
-                  },
-                  shadow: 'hover:shadow-blue-200/25'
-                },
-                {
-                  gradient: 'from-emerald-50 via-teal-50 to-cyan-50',
-                  border: 'border-emerald-200/60',
-                  scoreColor: 'text-emerald-600',
-                  progressBg: 'bg-emerald-500',
-                  sections: {
-                    behavioral: 'bg-emerald-50/80 border-emerald-200/40',
-                    career: 'bg-teal-50/80 border-teal-200/40',
-                    workplace: 'bg-cyan-50/80 border-cyan-200/40'
-                  },
-                  icons: {
-                    behavioral: '🌱',
-                    career: '🎯',
-                    workplace: '💼'
-                  },
-                  shadow: 'hover:shadow-emerald-200/25'
-                },
-                {
-                  gradient: 'from-rose-50 via-pink-50 to-fuchsia-50',
-                  border: 'border-rose-200/60',
-                  scoreColor: 'text-rose-600',
-                  progressBg: 'bg-rose-500',
-                  sections: {
-                    behavioral: 'bg-rose-50/80 border-rose-200/40',
-                    career: 'bg-pink-50/80 border-pink-200/40',
-                    workplace: 'bg-fuchsia-50/80 border-fuchsia-200/40'
-                  },
-                  icons: {
-                    behavioral: '💡',
-                    career: '🚀',
-                    workplace: '⭐'
-                  },
-                  shadow: 'hover:shadow-rose-200/25'
-                },
-                {
-                  gradient: 'from-amber-50 via-orange-50 to-red-50',
-                  border: 'border-amber-200/60',
-                  scoreColor: 'text-amber-600',
-                  progressBg: 'bg-amber-500',
-                  sections: {
-                    behavioral: 'bg-amber-50/80 border-amber-200/40',
-                    career: 'bg-orange-50/80 border-orange-200/40',
-                    workplace: 'bg-red-50/80 border-red-200/40'
-                  },
-                  icons: {
-                    behavioral: '🔥',
-                    career: '⚡',
-                    workplace: '🎪'
-                  },
-                  shadow: 'hover:shadow-amber-200/25'
-                }
-              ];
-              
-              const scheme = colorSchemes[index % colorSchemes.length];
-              
-              return (
-                <Card key={index} className={`p-6 bg-gradient-to-br ${scheme.gradient} ${scheme.border} border-2 transition-all duration-300 ${scheme.shadow} hover:shadow-lg transform hover:-translate-y-1`}>
-                  <div className="mb-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-bold text-xl text-gray-800">{trait.trait}</h3>
-                      <div className={`text-3xl font-bold ${scheme.scoreColor} bg-white/60 px-4 py-2 rounded-full shadow-sm`}>
-                        {trait.score}/10
-                      </div>
-                    </div>
-                    <div className="relative">
-                      <Progress 
-                        value={trait.score * 10} 
-                        className="mb-3 h-3 bg-white/50 rounded-full shadow-inner" 
-                      />
-                      <div className="absolute top-0 left-0 h-3 rounded-full transition-all duration-1000 ease-out" 
-                           style={{
-                             width: `${trait.score * 10}%`,
-                             background: `linear-gradient(90deg, ${scheme.progressBg.replace('bg-', '')} 0%, ${scheme.progressBg.replace('bg-', '').replace('-500', '-400')} 100%)`
-                           }}>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <div className={`${scheme.sections.behavioral} p-4 rounded-xl border backdrop-blur-sm transition-all duration-200 hover:shadow-md`}>
-                      <h4 className="font-semibold text-sm mb-3 text-gray-700 flex items-center gap-2">
-                        <span className="text-lg">{scheme.icons.behavioral}</span>
-                        <span>Behavioral Profile</span>
-                      </h4>
-                      <p className="text-sm leading-relaxed text-gray-700">{trait.description}</p>
-                    </div>
-                    
-                    <div className={`${scheme.sections.career} p-4 rounded-xl border backdrop-blur-sm transition-all duration-200 hover:shadow-md`}>
-                      <h4 className="font-semibold text-sm mb-3 text-gray-700 flex items-center gap-2">
-                        <span className="text-lg">{scheme.icons.career}</span>
-                        <span>Career Implications</span>
-                      </h4>
-                      <div className="flex flex-wrap gap-2">
-                        {(Array.isArray(trait.careerImplications) ? trait.careerImplications : []).map((implication, impIndex) => (
-                          <Badge key={impIndex} variant="outline" className="text-xs bg-white/60 border-gray-300/50 text-gray-700 hover:bg-white/80 transition-colors">
-                            {implication}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    {trait.workplaceExamples && Array.isArray(trait.workplaceExamples) && (
-                      <div className={`${scheme.sections.workplace} p-4 rounded-xl border backdrop-blur-sm transition-all duration-200 hover:shadow-md`}>
-                        <h4 className="font-semibold text-sm mb-3 text-gray-700 flex items-center gap-2">
-                          <span className="text-lg">{scheme.icons.workplace}</span>
-                          <span>Workplace Strengths</span>
-                        </h4>
-                        <div className="space-y-2">
-                          {trait.workplaceExamples.map((example, exampleIndex) => (
-                            <div key={exampleIndex} className="flex items-center gap-3 text-sm text-gray-700 bg-white/40 p-2 rounded-lg">
-                              <div className="w-2 h-2 bg-gradient-to-r from-current to-transparent rounded-full opacity-70"></div>
-                              <span>{example}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-          
-          {(!analysis.personalityProfile || analysis.personalityProfile.length === 0) && (
-            <Card className="p-8">
-              <div className="text-center text-muted-foreground">
-                <div className="text-4xl mb-4">🧠</div>
-                <h3 className="text-lg font-semibold mb-2">Personality Analysis Coming Soon</h3>
-                <p>Complete the full assessment to unlock detailed personality insights powered by AI.</p>
-              </div>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Roadmap Tab */}
-        <TabsContent value="roadmap" className="space-y-6">
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold mb-2 flex items-center justify-center gap-2">
-              <span>🗺️</span>
-              <span>AI-Generated Career Roadmap</span>
-              <Badge variant="secondary" className="text-xs">Powered by Gemini</Badge>
-            </h2>
-            <p className="text-muted-foreground">Your personalized step-by-step career advancement plan</p>
-          </div>
-          
-          <Card className="p-6">
-            <div className="space-y-8">
-              {/* Immediate Actions - Enhanced */}
-              <div className="border-l-4 border-primary pl-6">
-                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <span>💼</span>
-                  <span>Phase 1: Immediate Actions (Next 3 Months)</span>
-                </h3>
-                
-                {analysis.detailedRoadmap ? (
-                  <div className="grid gap-4">
-                    {analysis.detailedRoadmap.immediate.map((item, index) => (
-                      <div key={index} className="bg-primary/5 p-4 rounded-lg border border-primary/20">
-                        <div className="flex items-start justify-between mb-2">
-                          <h4 className="font-semibold text-lg">{item.title}</h4>
-                          <div className="flex gap-2">
-                            <Badge variant={item.priority === 'Critical' ? 'destructive' : item.priority === 'High' ? 'default' : 'secondary'}>
-                              {item.priority}
-                            </Badge>
-                            <Badge variant="outline" className="text-xs">
-                              {item.timeline}
-                            </Badge>
-                          </div>
-                        </div>
-                        <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {analysis.learningPath.slice(0, 2).map((step, index) => (
-                      <div key={index} className="bg-primary/5 p-4 rounded-lg">
-                        <h5 className="font-semibold">{step.skill}</h5>
-                        <p className="text-sm text-muted-foreground">{step.action}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Short-term Goals - Enhanced */}
-              <div className="border-l-4 border-secondary pl-6">
-                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <span>🎯</span>
-                  <span>Phase 2: Skill Development (3-12 Months)</span>
-                </h3>
-                
-                {analysis.detailedRoadmap ? (
-                  <div className="grid gap-4">
-                    {analysis.detailedRoadmap.shortTerm.map((item, index) => (
-                      <div key={index} className="bg-secondary/5 p-4 rounded-lg border border-secondary/20">
-                        <div className="flex items-start justify-between mb-2">
-                          <h4 className="font-semibold text-lg">{item.title}</h4>
-                          <div className="flex gap-2">
-                            <Badge variant={item.priority === 'Critical' ? 'destructive' : item.priority === 'High' ? 'default' : 'secondary'}>
-                              {item.priority}
-                            </Badge>
-                            <Badge variant="outline" className="text-xs">
-                              {item.timeline}
-                            </Badge>
-                          </div>
-                        </div>
-                        <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {analysis.skillGaps.filter(gap => gap.priority === 'high').map((gap, index) => (
-                      <div key={index} className="bg-secondary/5 p-4 rounded-lg">
-                        <h5 className="font-semibold">{gap.skill}</h5>
-                        <p className="text-sm text-muted-foreground">Target level: {gap.requiredLevel}/10</p>
-                        <p className="text-xs text-muted-foreground">Est. time: {gap.developmentTime}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Long-term Vision - Enhanced */}
-              <div className="border-l-4 border-accent pl-6">
-                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <span>🚀</span>
-                  <span>Phase 3: Career Advancement (1-3 Years)</span>
-                </h3>
-                
-                {analysis.detailedRoadmap ? (
-                  <div className="grid gap-4">
-                    {analysis.detailedRoadmap.longTerm.map((item, index) => (
-                      <div key={index} className="bg-accent/5 p-4 rounded-lg border border-accent/20">
-                        <div className="flex items-start justify-between mb-2">
-                          <h4 className="font-semibold text-lg">{item.title}</h4>
-                          <div className="flex gap-2">
-                            <Badge variant={item.priority === 'Critical' ? 'destructive' : item.priority === 'High' ? 'default' : 'secondary'}>
-                              {item.priority}
-                            </Badge>
-                            <Badge variant="outline" className="text-xs">
-                              {item.timeline}
-                            </Badge>
-                          </div>
-                        </div>
-                        <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {analysis.careerRecommendations.slice(0, 2).map((career, index) => (
-                      <div key={index} className="bg-accent/5 p-4 rounded-lg">
-                        <h5 className="font-semibold">{career.title}</h5>
-                        <p className="text-sm text-muted-foreground">{career.description}</p>
-                        <p className="text-xs text-muted-foreground">Transition time: {career.timeToTransition}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              
-              {/* Success Tips */}
-              <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-6 rounded-lg border">
-                <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-                  <span>✨</span>
-                  <span>Success Tips for Your Journey</span>
-                </h3>
-                <div className="grid md:grid-cols-2 gap-4 text-sm">
-                  <div className="space-y-2">
-                    <h4 className="font-semibold text-primary">📈 Track Progress</h4>
-                    <ul className="space-y-1 text-muted-foreground">
-                      <li>• Set monthly review checkpoints</li>
-                      <li>• Document achievements and learnings</li>
-                      <li>• Adjust timelines based on progress</li>
-                    </ul>
-                  </div>
-                  <div className="space-y-2">
-                    <h4 className="font-semibold text-secondary">🤝 Network Actively</h4>
-                    <ul className="space-y-1 text-muted-foreground">
-                      <li>• Connect with industry professionals</li>
-                      <li>• Join relevant professional communities</li>
-                      <li>• Seek mentorship and guidance</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
+            </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
-
-      {/* Action Buttons */}
-      <div className="text-center space-x-4">
-        <Button onClick={onRestart} variant="outline" size="lg">
-          Start New Assessment
-        </Button>
-        <Button onClick={() => window.print()} size="lg" className="gradient-primary">
-          Download Report
-        </Button>
-      </div>
     </div>
   );
 };

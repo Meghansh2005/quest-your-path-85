@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Landing } from "./Landing";
 import { PathSelection } from "./PathSelection";
 import { TalentsPath } from "./TalentsPath";
-import { ScenariosPath } from "./ScenariosPath";
+import ScenariosPath from "./ScenariosPath";
 
 type Screen = "landing" | "path-selection" | "talents" | "scenarios";
 

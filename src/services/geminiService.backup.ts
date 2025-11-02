@@ -1,12 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Add validation for API key
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-if (!API_KEY) {
-  console.error('❌ VITE_GEMINI_API_KEY not found in environment variables');
-  console.error('Please set VITE_GEMINI_API_KEY in your .env.local file');
-}
-
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 // System prompts for different analysis types
@@ -150,83 +144,15 @@ export interface AdaptiveQuestion {
   difficulty: number;
 }
 
-// Define interface for scenario option
-export interface ScenarioOption {
-  id: string;
-  text: string;
-  skills: string[];
-  personality: string[];
-}
-
-// Define interface for scenario variant
-export interface ScenarioVariant {
-  scenario: string;
-  context: string;
-  challenge: string;
-  options: Array<{
-    id: string;
-    text: string;
-    skills: string[];
-    personality: string[];
-  }>;
-  followUpQuestions: string[];
-}
-
-// Define interface for scenario response input
-export interface ScenarioResponseInput {
-  scenario: string;
-  selectedOption: ScenarioOption;
-  reasoning?: string;
-}
-
-// Define interface for scenario results
-export interface ScenarioResults {
-  personalityProfile?: PersonalityTrait[];
-  workStylePreferences?: string[];
-  leadershipStyle?: string;
-  problemSolvingApproach?: string;
-  careerRecommendations?: CareerRecommendation[];
-  developmentAreas?: string[];
-  skillGaps?: SkillGap[];
-  learningPath?: LearningPathItem[];
-  overallScore?: number;
-  topStrengths?: string[];
-  developmentPlan?: {
-    immediate: string[];
-    shortTerm: string[];
-    longTerm: string[];
-  };
-  marketInsights?: {
-    demandLevel: string;
-    competitionLevel: string;
-    trendingSkills: string[];
-  };
-  skillPatterns?: string[];
-}
-
-/**
- * GeminiService - Core service class for interacting with Google's Gemini API
- * 
- * This class provides methods for:
- * - Generating adaptive assessment questions
- * - Analyzing user responses for career insights
- * - Creating workplace scenarios
- * - Generating skill details and career recommendations
- * 
- * Uses a singleton pattern via geminiServiceInstance to ensure consistent state
- * and avoid unnecessary API client instantiation.
- */
 class GeminiService {
-  private getModel() {
-    return genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-flash',
-      generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-      }
-    });
-  }
+  private model = genAI.getGenerativeModel({ 
+    model: 'gemini-1.5-flash',
+    generationConfig: {
+      temperature: 0.7,
+      topK: 40,
+      topP: 0.95,
+    }
+  });
   private conversationHistory: string[] = [];
 
   private async makeStructuredRequest(prompt: string, retries: number = 3): Promise<unknown> {
@@ -235,8 +161,7 @@ class GeminiService {
     
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const model = this.getModel();
-        const result = await model.generateContent(prompt);
+        const result = await this.model.generateContent(prompt);
         const response = result.response.text();
         console.log('✅ Received response from Gemini API');
         console.log('Response preview:', response.substring(0, 200) + '...');
@@ -269,16 +194,14 @@ class GeminiService {
           }
         }
         
-        // If it's the last attempt or not a retryable error, re-throw the error
-        // so calling functions can handle it appropriately
+        // If it's the last attempt or not a retryable error
         if (attempt === retries) {
-          console.log('🔄 All retries exhausted, re-throwing error');
-          throw error;
+          console.log('🔄 All retries exhausted, using fallback data');
+          return null;
         }
       }
     }
-    // This should never be reached, but TypeScript requires it
-    throw new Error('Unexpected error in makeStructuredRequest');
+    return null;
   }
 
   private extractJSON(text: string): string {
@@ -381,21 +304,23 @@ class GeminiService {
     try {
       const result = await this.makeStructuredRequest(prompt);
       
-      if (result && typeof result === 'object' && 'questions' in result && Array.isArray(result.questions)) {
-        console.log('✅ Generated', result.questions.length, 'questions from Gemini API');
-        this.addToContext(`Generated ${result.questions.length} questions for ${phase}`, JSON.stringify(result.questions));
-        return result.questions;
+      // Type check the result before returning
+      if (result && typeof result === 'object' && 'questions' in result && Array.isArray((result as any).questions)) {
+        const questions = (result as any).questions;
+        console.log('✅ Generated', questions.length, 'questions from Gemini API');
+        this.addToContext(`Generated ${questions.length} questions for ${phase}`, JSON.stringify(questions));
+        return questions;
       } else {
         console.log('⚠️ Invalid response from Gemini API, using fallback questions');
         return this.getFallbackQuestions(selectedSkills, phase);
       }
     } catch (error) {
       console.error('Error generating adaptive questions:', error);
-      return this.getFallbackQuestions(selectedSkills, phase);
+      return this.getFallbackDeepDiveQuestions(topSkills.length > 0 ? topSkills : ['Problem Solving', 'Communication']);
     }
   }
 
-  // Analyze user responses for comprehensive career insights
+  // Generate comprehensive career analysis and recommendations
   async analyzeCareerFit(
     selectedSkills: string[],
     questionResponses: QuizResponse[],
@@ -523,7 +448,7 @@ class GeminiService {
     `;
 
     try {
-      const result: unknown = await this.makeStructuredRequest(prompt);
+      const result = await this.makeStructuredRequest(prompt);
       this.addToContext(prompt, JSON.stringify(result));
       
       // Type check the result before returning
@@ -553,178 +478,6 @@ class GeminiService {
     }
   }
 
-  // Generate multiple workplace scenarios in a single request
-  async generateWorkplaceScenarios(
-    count: number,
-    fieldOfInterest: string,
-    userProfile: { name: string; previousResponses?: QuizResponse[] },
-    previousScenarios: string[] = [],
-    nicheField?: string,
-    majorField?: string
-  ): Promise<Array<{
-    scenario: string;
-    context: string;
-    challenge: string;
-    options: Array<{
-      id: string;
-      text: string;
-      skills: string[];
-      personality: string[];
-    }>;
-    followUpQuestions: string[];
-  }>> {
-    // For now, we'll just call the single scenario generator multiple times
-    // In a real implementation, you would modify the prompt to generate multiple scenarios at once
-    const scenarios = [];
-    const generatedScenarios = [];
-    
-    for (let i = 0; i < count; i++) {
-      try {
-        const scenario = await this.generateWorkplaceScenario(
-          fieldOfInterest,
-          userProfile,
-          [...previousScenarios, ...generatedScenarios],
-          nicheField,
-          majorField
-        );
-        scenarios.push(scenario);
-        if (scenario.scenario) {
-          generatedScenarios.push(scenario.scenario);
-        }
-      } catch (error) {
-        console.error(`Error generating scenario ${i + 1}:`, error);
-        // Push a fallback scenario if there's an error
-        const fallback = this.getFallbackScenario(fieldOfInterest);
-        scenarios.push(fallback);
-        if (fallback.scenario) {
-          generatedScenarios.push(fallback.scenario);
-        }
-      }
-    }
-    
-    return scenarios;
-  }
-
-  // Generate a single workplace scenario
-  async generateWorkplaceScenario(
-    fieldOfInterest: string,
-    userProfile: { name: string; previousResponses?: QuizResponse[] },
-    previousScenarios: string[] = [],
-    nicheField?: string,
-    majorField?: string
-  ): Promise<{
-    scenario: string;
-    context: string;
-    challenge: string;
-    options: Array<{
-      id: string;
-      text: string;
-      skills: string[];
-      personality: string[];
-    }>;
-    followUpQuestions: string[];
-  }> {
-    const context = this.conversationHistory.join('\n');
-    // Use niche field for more specific scenarios, fallback to fieldOfInterest
-    const specificField = nicheField || fieldOfInterest;
-    const parentField = majorField || fieldOfInterest;
-    
-    // Build niche-specific context
-    const nicheContext = nicheField 
-      ? `NICHE FIELD: ${nicheField} (within ${parentField} major field)`
-      : `FIELD: ${fieldOfInterest}`;
-    
-    const prompt = `You are a senior career coach and industry expert specializing in ${specificField}${nicheField ? `, a niche within ${parentField}` : ''}. Create a highly realistic, NICHE-SPECIFIC workplace scenario that reflects actual challenges professionals face specifically in ${specificField}.
-
-${nicheContext}
-USER: ${userProfile.name}
-PREVIOUS SCENARIOS TO AVOID: ${previousScenarios.join('; ')}
-
-CREATE A NICHE-SPECIFIC SCENARIO THAT:
-1. Reflects REAL ${specificField} challenges and terminology (NOT generic ${parentField} scenarios)
-2. Uses ${specificField}-specific tools, technologies, and processes
-3. Tests decision-making skills unique to ${specificField} professionals
-4. Shows ${specificField}-specific problem-solving methodologies
-5. Demonstrates deep knowledge of ${specificField} best practices and industry standards
-6. Assesses communication relevant to ${specificField} stakeholders and team structures
-7. Includes ${specificField}-specific metrics, timelines, and success criteria
-8. Each scenario MUST be distinctly different from others - vary the type of challenge (technical, team, deadline, client, strategic, etc.)
-
-NICHE-SPECIFIC REQUIREMENTS FOR ${specificField}:
-${this.getNicheSpecificRequirementsInternal(nicheField, parentField)}
-
-IMPORTANT: Respond ONLY with valid JSON. No additional text or explanations.
-
-Return ONLY this JSON structure:
-{
-  "scenario": "[Field-specific scenario title using industry terminology]",
-  "context": "[Detailed context using authentic ${fieldOfInterest} terminology, stakeholders, tools, and processes. Include specific industry challenges, realistic timelines, and actual job responsibilities. Avoid generic business language.]",
-  "challenge": "[Specific challenge that tests ${fieldOfInterest} expertise and decision-making skills]",
-  "options": [
-    {
-      "id": "A",
-      "text": "[Option using ${fieldOfInterest} best practices and terminology]",
-      "skills": ["[${fieldOfInterest}-specific skill]", "[relevant skill]", "[another relevant skill]"],
-      "personality": ["[relevant trait]", "[another trait]"]
-    },
-    {
-      "id": "B",
-      "text": "[Different approach showing ${fieldOfInterest} methodology]", 
-      "skills": ["[different ${fieldOfInterest} skill]", "[relevant skill]", "[another skill]"],
-      "personality": ["[different trait]", "[another trait]"]
-    },
-    {
-      "id": "C",
-      "text": "[Third approach demonstrating ${fieldOfInterest} expertise]",
-      "skills": ["[${fieldOfInterest} skill]", "[relevant skill]", "[another skill]"],
-      "personality": ["[relevant trait]", "[another trait]"]
-    },
-    {
-      "id": "D",
-      "text": "[Fourth approach showing ${fieldOfInterest} innovation]",
-      "skills": ["[advanced ${fieldOfInterest} skill]", "[relevant skill]", "[another skill]"],
-      "personality": ["[relevant trait]", "[another trait]"]
-    }
-  ],
-  "followUpQuestions": [
-    "[${fieldOfInterest}-specific follow-up question]",
-    "[Another field-specific question]",
-    "[Third field-specific question]"
-  ]
-}`;
-
-    try {
-      const result: unknown = await this.makeStructuredRequest(prompt);
-      this.addToContext(prompt, JSON.stringify(result));
-      
-      // Type check the result before returning
-      if (result && typeof result === 'object' && 
-          'scenario' in result && 
-          'context' in result && 
-          'challenge' in result && 
-          'options' in result && 
-          'followUpQuestions' in result) {
-        return result as {
-          scenario: string;
-          context: string;
-          challenge: string;
-          options: Array<{
-            id: string;
-            text: string;
-            skills: string[];
-            personality: string[];
-          }>;
-          followUpQuestions: string[];
-        };
-      } else {
-        console.log('⚠️ Invalid response from Gemini API, using fallback scenario');
-        return this.getFallbackScenario(fieldOfInterest);
-      }
-    } catch (error) {
-      console.error('Error generating workplace scenario:', error);
-      return this.getFallbackScenario(fieldOfInterest);
-    }
-  }
 
   private getFieldSpecificRequirements(field: string): string {
     const fieldRequirements = {
@@ -878,7 +631,7 @@ Work styles: Data-driven, risk-conscious, client advisory, regulatory compliance
     fieldOfInterest: string,
     scenarioResponses: Array<{
       scenario: string;
-      selectedOption: ScenarioOption;
+      selectedOption: any;
       reasoning?: string;
     }>
   ): Promise<{
@@ -956,8 +709,7 @@ Return ONLY this JSON structure:
 }`;
 
     try {
-      const model = this.getModel();
-      const result = await model.generateContent(prompt);
+      const result = await this.model.generateContent(prompt);
       const response = result.response.text();
       this.addToContext(prompt, response);
       
@@ -1085,52 +837,39 @@ Return ONLY this JSON structure:
     return {
       overallScore: 80,
       topStrengths: skills,
-      skillPatterns: ['Strong analytical abilities', 'Good communication skills'],
+      skillGaps: [],
       careerRecommendations: [{
         title: 'Business Analyst',
         field: 'Technology',
         match: 75,
-        matchScore: 75,
         description: 'Analyze business requirements and processes',
         salaryRange: '$60,000 - $85,000',
         growthOutlook: 'Strong growth expected',
-        growthProspects: 'Strong growth expected',
         requiredSkills: skills.slice(0, 3),
         timeToTransition: '6-12 months'
       }],
-      skillGaps: [],
-      learningPath: [],
-      personalityProfile: [],
       developmentPlan: {
-        immediate: ['Update resume', 'Build portfolio'],
-        shortTerm: ['Apply to positions', 'Expand network'],
-        longTerm: ['Advance to leadership', 'Specialize further']
+        immediate: [],
+        shortTerm: [],
+        longTerm: []
       },
       marketInsights: {
         demandLevel: 'High',
         competitionLevel: 'Moderate',
-        trendingSkills: ['Communication', 'Problem Solving', 'Leadership', 'Digital transformation']
+        trendingSkills: []
       },
-      detailedRoadmap: {
-        immediate: [],
-        shortTerm: [],
-        longTerm: []
-      }
+      skillPatterns: [],
+      learningPath: [],
+      personalityProfile: []
     };
   }
 
   private getFallbackScenario(field: string) {
     console.log(`🔄 Using enhanced fallback scenario for ${field}`);
     
-    // Use the unique scenario variant selection to avoid repetition
-    return this.getUniqueScenarioVariant(field);
-  }
-
-  // Get multiple scenario variants for each field to avoid repetition
-  private getScenarioVariants(field: string): ScenarioVariant[] {
-    const variants = {
-      'Technology': [
-        {
+    // Enhanced scenarios based on common workplace situations
+    const scenarioTemplates = {
+      'Technology': {
         scenario: 'Critical System Outage During Peak Hours',
         context: 'Your company\'s main application is experiencing a critical outage during peak business hours. Customers are unable to access services, and the issue appears to be affecting multiple system components. The operations team is under pressure to restore service quickly while the development team needs to identify and fix the root cause.',
         challenge: 'How do you prioritize actions and coordinate between teams to resolve this crisis while maintaining customer communication and preventing future occurrences?',
@@ -1159,85 +898,9 @@ Return ONLY this JSON structure:
             skills: ['Assessment', 'Transparency', 'Multi-tasking'], 
             personality: ['Analytical', 'Honest', 'Comprehensive'] 
           }
-          ],
-          followUpQuestions: [
-            'How would you prevent similar outages in the future?',
-            'What metrics would you use to measure the success of your response?'
-          ]
-        },
-        {
-          scenario: 'Legacy System Migration Crisis',
-          context: 'Your team is in the middle of migrating a critical legacy system to a modern cloud platform when you discover that the legacy system has undocumented dependencies that weren\'t accounted for in the migration plan. The migration is 60% complete, but these dependencies are causing data integrity issues.',
-          challenge: 'How do you handle this unexpected complexity while maintaining data integrity and meeting the migration deadline?',
-          options: [
-            { 
-              id: 'A',
-              text: 'Pause the migration, conduct a comprehensive dependency analysis, and revise the migration plan with proper documentation and testing procedures', 
-              skills: ['Risk Management', 'System Analysis', 'Project Planning'], 
-              personality: ['Methodical', 'Risk-averse', 'Quality-focused'] 
-            },
-            { 
-              id: 'B', 
-              text: 'Continue with the migration using parallel systems to maintain data integrity, while simultaneously documenting and addressing the dependencies', 
-              skills: ['Parallel Processing', 'Data Management', 'Adaptive Planning'], 
-              personality: ['Flexible', 'Multi-tasking', 'Solution-oriented'] 
-            },
-            { 
-              id: 'C', 
-              text: 'Engage external consultants with legacy system expertise to quickly identify and resolve the dependency issues while your team continues with other aspects', 
-              skills: ['Vendor Management', 'Expertise Leveraging', 'Resource Coordination'], 
-              personality: ['Collaborative', 'Resourceful', 'Strategic'] 
-            },
-            { 
-              id: 'D', 
-              text: 'Implement a hybrid approach where critical components remain on the legacy system while non-critical components migrate, allowing for gradual resolution', 
-              skills: ['Hybrid Architecture', 'Gradual Migration', 'Risk Mitigation'], 
-              personality: ['Pragmatic', 'Patient', 'Innovative'] 
-            }
-          ],
-          followUpQuestions: [
-            'How would you communicate this situation to stakeholders?',
-            'What would you do if the deadline couldn\'t be extended?'
-          ]
-        },
-        {
-          scenario: 'Security Vulnerability Discovery',
-          context: 'During a routine security audit, your team discovers a critical vulnerability in your production system that could potentially expose customer data. The vulnerability is complex and requires significant code changes to fix properly, but there\'s also a quick patch available that would provide temporary protection.',
-          challenge: 'How do you balance the need for immediate security with the requirement for a proper long-term solution?',
-          options: [
-            { 
-              id: 'A',
-              text: 'Implement the quick patch immediately, then develop and deploy the proper fix within 48 hours while monitoring for any issues', 
-              skills: ['Security Management', 'Rapid Response', 'Risk Assessment'], 
-              personality: ['Security-conscious', 'Quick-acting', 'Thorough'] 
-            },
-            { 
-              id: 'B', 
-              text: 'Take the system offline temporarily, implement the proper fix, conduct thorough testing, then restore service with enhanced monitoring', 
-              skills: ['System Management', 'Quality Assurance', 'Risk Mitigation'], 
-              personality: ['Cautious', 'Quality-focused', 'Patient'] 
-            },
-            { 
-              id: 'C', 
-              text: 'Implement the patch, notify customers transparently about the situation, and establish a clear timeline for the permanent fix', 
-              skills: ['Communication', 'Transparency', 'Customer Relations'], 
-              personality: ['Transparent', 'Customer-focused', 'Communicative'] 
-            },
-            { 
-              id: 'D', 
-              text: 'Assemble a cross-functional team to assess the full impact, develop multiple solution options, and choose the best approach based on comprehensive analysis', 
-              skills: ['Team Leadership', 'Strategic Analysis', 'Decision Making'], 
-              personality: ['Analytical', 'Collaborative', 'Strategic'] 
-            }
-          ],
-          followUpQuestions: [
-            'How would you prevent similar vulnerabilities in the future?',
-            'What would you do if customers were affected by the vulnerability?'
-          ]
-        }
-      ],
-      'Business': [
-        {
+        ]
+      },
+      'Business': {
         scenario: 'Major Client Threatening Contract Cancellation',
         context: 'Your largest client, representing 30% of annual revenue, has expressed serious concerns about recent service quality issues and is threatening to terminate their contract within 30 days. They\'ve scheduled a meeting to discuss their concerns and want to see a concrete action plan for improvement.',
         challenge: 'How do you address their concerns, rebuild trust, and create a plan that satisfies both their needs and your company\'s capabilities?',
@@ -1266,50 +929,9 @@ Return ONLY this JSON structure:
             skills: ['Escalation Management', 'Expectation Setting', 'Relationship Maintenance'], 
             personality: ['Strategic', 'Diplomatic', 'Long-term focused'] 
           }
-          ],
-          followUpQuestions: [
-            'How would you measure the success of your recovery plan?',
-            'What would you do if the client still decided to leave?'
-          ]
-        },
-        {
-          scenario: 'Market Disruption Impacting Revenue',
-          context: 'A new competitor has entered your market with a disruptive business model that\'s significantly undercutting your pricing. Your quarterly revenue is down 25%, and your board is demanding immediate action to address the competitive threat.',
-          challenge: 'How do you respond to this market disruption while maintaining your company\'s value proposition and long-term sustainability?',
-          options: [
-            { 
-              id: 'A',
-              text: 'Conduct a comprehensive competitive analysis, identify your unique value propositions, and develop a differentiated strategy that emphasizes quality and service over price', 
-              skills: ['Competitive Analysis', 'Strategic Positioning', 'Value Proposition'], 
-              personality: ['Analytical', 'Strategic', 'Quality-focused'] 
-            },
-            { 
-              id: 'B', 
-              text: 'Accelerate innovation initiatives, invest in new technologies, and pivot toward higher-value services that the competitor cannot easily replicate', 
-              skills: ['Innovation', 'Technology Adoption', 'Market Pivoting'], 
-              personality: ['Innovative', 'Adaptive', 'Forward-thinking'] 
-            },
-            { 
-              id: 'C', 
-              text: 'Engage in strategic partnerships or acquisitions to strengthen your market position and create barriers to entry for competitors', 
-              skills: ['Strategic Partnerships', 'M&A', 'Market Consolidation'], 
-              personality: ['Strategic', 'Collaborative', 'Growth-oriented'] 
-            },
-            { 
-              id: 'D', 
-              text: 'Implement cost optimization measures while maintaining service quality, then use the savings to invest in customer retention and new market expansion', 
-              skills: ['Cost Management', 'Customer Retention', 'Market Expansion'], 
-              personality: ['Efficient', 'Customer-focused', 'Growth-minded'] 
-            }
-          ],
-          followUpQuestions: [
-            'How would you communicate this strategy to your team?',
-            'What metrics would you use to track progress?'
-          ]
-        }
-      ],
-      'Healthcare': [
-        {
+        ]
+      },
+      'Healthcare': {
         scenario: 'Critical Staff Shortage During Emergency Surge',
         context: 'Your healthcare facility is experiencing an unexpected surge in patient volume due to a local emergency, but you\'re simultaneously dealing with multiple staff members calling in sick. Patient wait times are increasing, and the remaining staff is showing signs of stress and fatigue.',
         challenge: 'How do you ensure patient safety and quality of care while managing staff resources and maintaining team morale during this crisis?',
@@ -1338,47 +960,24 @@ Return ONLY this JSON structure:
             skills: ['Adaptive Leadership', 'Quality Management', 'Resource Flexibility'], 
             personality: ['Innovative', 'Quality-conscious', 'Resourceful'] 
           }
-          ],
-          followUpQuestions: [
-            'How would you support staff after the crisis ends?',
-            'What would you do if patient safety was compromised?'
-          ]
-        }
-      ]
+        ]
+      }
     };
     
-    return variants[field] || variants['Business'];
-  }
-
-  // Track used scenarios to ensure uniqueness
-  private usedScenarios: Set<string> = new Set();
-
-  // Reset scenario tracking for new assessments
-  public resetScenarioTracking(): void {
-    this.usedScenarios.clear();
-    console.log('🔄 Scenario tracking reset for new assessment');
-  }
-
-  // Get a unique scenario variant that hasn't been used recently
-  private getUniqueScenarioVariant(field: string): ScenarioVariant {
-    const variants = this.getScenarioVariants(field);
-    const availableVariants = variants.filter(variant => 
-      !this.usedScenarios.has(`${field}_${variant.scenario}`)
-    );
+    // Select appropriate scenario based on field
+    const scenario = scenarioTemplates[field] || scenarioTemplates['Business'];
     
-    // If all variants have been used, reset the tracking for this field
-    if (availableVariants.length === 0) {
-      console.log(`🔄 All scenarios for ${field} have been used, resetting tracking`);
-      this.usedScenarios.clear();
-      return variants[0];
-    }
-    
-    // Select a random available variant
-    const selectedVariant = availableVariants[Math.floor(Math.random() * availableVariants.length)];
-    this.usedScenarios.add(`${field}_${selectedVariant.scenario}`);
-    
-    console.log(`📊 Selected unique scenario: ${selectedVariant.scenario} for ${field}`);
-    return selectedVariant;
+    return {
+      scenario: scenario.scenario,
+      context: scenario.context,
+      challenge: scenario.challenge,
+      options: scenario.options,
+      followUpQuestions: [
+        'What would you do if this approach didn\'t resolve the situation within the expected timeframe?',
+        'How would you measure the success of your chosen approach?',
+        'What preventive measures would you implement to avoid similar situations in the future?'
+      ]
+    };
   }
 
   private getFallbackScenarioAnalysis(field: string) {
@@ -1388,7 +987,7 @@ Return ONLY this JSON structure:
     const fieldSpecificGuidance = this.getFieldSpecificAnalysisRequirements(field);
     
     // Field-specific fallback analysis that aligns with our analysis requirements
-    const fieldAnalysis = {
+    const fieldAnalysis: Record<string, any> = {
       'Technology': {
         personalityProfile: [
           {
@@ -1417,20 +1016,20 @@ Return ONLY this JSON structure:
           {
             title: 'Senior Software Engineer',
             field: field,
-            matchScore: 92,
+            match: 92,
             description: 'Lead complex software projects, mentor junior developers, and contribute to technical architecture decisions',
             salaryRange: '$110,000 - $160,000',
-            growthProspects: 'Excellent - 20% annual growth with high demand for experienced engineers',
+            growthOutlook: 'Excellent - 20% annual growth with high demand for experienced engineers',
             requiredSkills: ['Advanced Programming', 'System Design', 'Code Review', 'Technical Mentoring'],
             timeToTransition: '6-12 months'
           },
           {
             title: 'DevOps Engineer',
             field: field,
-            matchScore: 88,
+            match: 88,
             description: 'Design and maintain CI/CD pipelines, manage cloud infrastructure, and ensure system reliability',
             salaryRange: '$105,000 - $155,000',
-            growthProspects: 'Very strong growth in cloud and automation technologies',
+            growthOutlook: 'Very strong growth in cloud and automation technologies',
             requiredSkills: ['Cloud Platforms', 'CI/CD', 'Infrastructure as Code', 'System Monitoring'],
             timeToTransition: '9-15 months'
           }
@@ -1465,20 +1064,20 @@ Return ONLY this JSON structure:
           {
             title: 'Business Development Manager',
             field: field,
-            matchScore: 90,
+            match: 90,
             description: 'Drive revenue growth through strategic partnerships, market expansion, and client relationship management',
             salaryRange: '$85,000 - $130,000',
-            growthProspects: 'Strong growth across industries with focus on digital transformation',
+            growthOutlook: 'Strong growth across industries with focus on digital transformation',
             requiredSkills: ['Strategic Planning', 'Relationship Building', 'Market Analysis', 'Negotiation'],
             timeToTransition: '6-9 months'
           },
           {
             title: 'Product Manager',
             field: field,
-            matchScore: 85,
+            match: 85,
             description: 'Lead product strategy, coordinate cross-functional teams, and drive product development from concept to launch',
             salaryRange: '$95,000 - $140,000',
-            growthProspects: 'Excellent growth in technology and consumer products',
+            growthOutlook: 'Excellent growth in technology and consumer products',
             requiredSkills: ['Product Strategy', 'Market Research', 'Cross-functional Leadership', 'Data Analysis'],
             timeToTransition: '9-15 months'
           }
@@ -1513,20 +1112,20 @@ Return ONLY this JSON structure:
           {
             title: 'Healthcare Operations Manager',
             field: field,
-            matchScore: 88,
+            match: 88,
             description: 'Lead operational efficiency initiatives while maintaining focus on patient care quality and staff satisfaction',
             salaryRange: '$75,000 - $110,000',
-            growthProspects: 'Growing demand in healthcare transformation',
+            growthOutlook: 'Growing demand in healthcare transformation',
             requiredSkills: ['Healthcare Operations', 'Quality Management', 'Team Leadership'],
             timeToTransition: '9-15 months'
           },
           {
             title: 'Patient Experience Manager',
             field: field,
-            matchScore: 85,
+            match: 85,
             description: 'Design and implement programs to enhance patient satisfaction and care delivery experiences',
             salaryRange: '$65,000 - $95,000',
-            growthProspects: 'Strong growth in patient-centered care focus',
+            growthOutlook: 'Strong growth in patient-centered care focus',
             requiredSkills: ['Patient Relations', 'Process Improvement', 'Data Analysis'],
             timeToTransition: '6-12 months'
           }
@@ -1535,20 +1134,20 @@ Return ONLY this JSON structure:
       }
     };
     
-    const fieldSpecificAnalysis = fieldAnalysis[field] || fieldAnalysis['Technology'] || {};
+    const selectedAnalysis = fieldAnalysis[field] || fieldAnalysis['Business'];
     
     return {
-      personalityProfile: fieldSpecificAnalysis.personalityProfile || [],
-      workStylePreferences: fieldSpecificAnalysis.workStylePreferences || [],
-      leadershipStyle: fieldSpecificAnalysis.leadershipStyle || `${field} leadership style`,
-      problemSolvingApproach: fieldSpecificAnalysis.problemSolvingApproach || `${field} problem-solving approach`,
-      careerRecommendations: fieldSpecificAnalysis.careerRecommendations || [],
-      developmentAreas: fieldSpecificAnalysis.developmentAreas || [],
+      personalityProfile: selectedAnalysis.personalityProfile || [],
+      workStylePreferences: selectedAnalysis.workStylePreferences || [],
+      leadershipStyle: selectedAnalysis.leadershipStyle || `${field} leadership style`,
+      problemSolvingApproach: selectedAnalysis.problemSolvingApproach || `${field} problem-solving approach`,
+      careerRecommendations: selectedAnalysis.careerRecommendations || [],
+      developmentAreas: selectedAnalysis.developmentAreas || [],
       overallScore: 85,
       topStrengths: [
         `Strong ${field} expertise`,
-        fieldSpecificAnalysis.leadershipStyle || 'Effective leadership approach',
-        fieldSpecificAnalysis.problemSolvingApproach || 'Systematic problem-solving',
+        selectedAnalysis.leadershipStyle || 'Effective leadership approach',
+        selectedAnalysis.problemSolvingApproach || 'Systematic problem-solving',
         'Excellent communication and collaboration',
         'Adaptability and continuous learning'
       ],
@@ -1775,216 +1374,6 @@ Return ONLY this JSON structure:
       return topSkills.slice(0, 2).map(skill => this.getFallbackSkillDetails(skill));
     }
   }
-  private getNicheSpecificRequirementsInternal(nicheField: string, majorField?: string): string {
-    // Map of niche-specific detailed requirements with enhanced prompts
-    const nicheRequirements: Record<string, string> = {
-      // Technology niches
-      'web-development': `
-- Focus on web technologies: React, Vue, Angular, Node.js, REST APIs, GraphQL, frontend/backend integration
-- Scenarios: Cross-browser compatibility issues, performance optimization, SEO challenges, responsive design decisions, API integration failures
-- Tools: Git, npm/yarn, webpack, testing frameworks (Jest, Cypress), CI/CD for web apps
-- Skills: Frontend frameworks, backend APIs, responsive design, accessibility, web performance
-- Stakeholders: Product designers, frontend/backend teams, UX researchers, QA for web apps
-- Questioning: Focus on debugging scenarios, architecture decisions, performance optimization techniques, and modern web development practices`,
-      
-      'mobile-development': `
-- Focus on mobile platforms: iOS (Swift, SwiftUI), Android (Kotlin, Jetpack Compose), React Native, Flutter
-- Scenarios: App store submission issues, performance optimization, battery efficiency, offline functionality, push notifications, deep linking
-- Tools: Xcode, Android Studio, Firebase, App Store Connect, Google Play Console, mobile testing tools
-- Skills: Native development, cross-platform frameworks, mobile UI/UX, app store optimization, mobile security
-- Stakeholders: Mobile designers, iOS/Android teams, app store reviewers, device manufacturers
-- Questioning: Platform-specific challenges, performance optimization, user experience considerations, and app store guidelines`,
-      
-      'devops': `
-- Focus on infrastructure: AWS, Azure, GCP, Docker, Kubernetes, Terraform, CI/CD pipelines, GitOps
-- Scenarios: Production outages, infrastructure scaling, security breaches, deployment failures, monitoring alerts, cost optimization
-- Tools: Jenkins, GitLab CI, GitHub Actions, ArgoCD, Kubernetes, Docker, monitoring tools (Datadog, New Relic, Prometheus)
-- Skills: Cloud architecture, infrastructure as code, automation, incident response, system reliability, security best practices
-- Stakeholders: Development teams, security teams, SRE engineers, cloud vendors, business stakeholders
-- Questioning: Incident response scenarios, infrastructure design decisions, security best practices, and cost optimization strategies`,
-      
-      'data-science': `
-- Focus on data: Python, R, machine learning, statistical modeling, data visualization, big data, MLOps
-- Scenarios: Model accuracy issues, data quality problems, feature engineering decisions, model deployment, ethical AI concerns, A/B testing
-- Tools: Jupyter notebooks, pandas, scikit-learn, TensorFlow, PyTorch, MLflow, Kubeflow, data warehouses
-- Skills: Statistical analysis, machine learning, data preprocessing, model evaluation, data storytelling, MLOps
-- Stakeholders: Data engineers, business analysts, product managers, domain experts, executives
-- Questioning: Model evaluation techniques, feature selection, bias detection, and production deployment challenges`,
-      
-      'cybersecurity': `
-- Focus on security: Threat detection, vulnerability assessment, incident response, compliance, risk management, cloud security
-- Scenarios: Security breaches, zero-day vulnerabilities, compliance audits, phishing attacks, security policy violations, cloud misconfigurations
-- Tools: SIEM systems, EDR solutions, penetration testing tools, vulnerability scanners, security frameworks (OWASP, NIST, CIS)
-- Skills: Threat analysis, incident response, security architecture, compliance, ethical hacking, security automation
-- Stakeholders: IT teams, compliance officers, executives, law enforcement, security vendors, auditors
-- Questioning: Incident response scenarios, risk assessment methodologies, security architecture decisions, and compliance requirements`,
-      
-      'game-development': `
-- Focus on game creation: Unity, Unreal Engine, game design, graphics programming, game physics, multiplayer networking
-- Scenarios: Performance optimization, gameplay balancing, asset pipeline issues, multiplayer networking, release deadlines, platform compatibility
-- Tools: Unity, Unreal, Blender, Maya, version control for assets, playtesting platforms, performance profilers
-- Skills: Game design, 3D graphics, game physics, user experience in games, monetization strategies, optimization
-- Stakeholders: Game designers, artists, QA testers, publishers, players, platform holders
-- Questioning: Performance optimization techniques, game design decisions, player engagement strategies, and monetization models`,
-
-      // AI/ML niches
-      'machine-learning': `
-- Focus on ML: Supervised/unsupervised learning, deep learning, NLP, computer vision, reinforcement learning
-- Scenarios: Model drift, data quality issues, feature engineering, model explainability, production deployment
-- Tools: TensorFlow, PyTorch, scikit-learn, MLflow, Kubeflow, Weights & Biases, TensorBoard
-- Skills: Algorithm selection, hyperparameter tuning, model evaluation, MLOps, data preprocessing
-- Stakeholders: Data scientists, ML engineers, product managers, domain experts
-- Questioning: Model selection criteria, feature importance, bias detection, and production deployment challenges`,
-
-      'cloud-architecture': `
-- Focus on cloud: Multi-cloud strategies, serverless, microservices, container orchestration, cloud security
-- Scenarios: High availability, disaster recovery, cost optimization, security compliance, performance tuning
-- Tools: AWS CloudFormation, Terraform, Kubernetes, Docker, Prometheus, Grafana, Istio
-- Skills: Cloud-native design, infrastructure as code, distributed systems, security best practices
-- Stakeholders: CTOs, DevOps teams, security teams, business stakeholders
-- Questioning: Architecture trade-offs, cost optimization strategies, security considerations, and scalability approaches`,
-
-      // Business niches
-      'product-management': `
-- Focus on product: Roadmapping, user research, agile development, go-to-market strategy, metrics
-- Scenarios: Prioritization, stakeholder management, market fit, competitive analysis, feature launches
-- Tools: Jira, Aha!, Productboard, Amplitude, Mixpanel, Google Analytics
-- Skills: User research, data analysis, stakeholder management, agile methodologies
-- Stakeholders: Engineering, design, marketing, executives, customers
-- Questioning: Prioritization frameworks, user research methods, and product strategy decisions`,
-
-      'ux-design': `
-- Focus on UX: User research, interaction design, information architecture, usability testing, accessibility
-- Scenarios: Design system implementation, user flow optimization, accessibility compliance, A/B testing
-- Tools: Figma, Sketch, Adobe XD, UserTesting, Hotjar, Maze
-- Skills: User research, wireframing, prototyping, usability testing, design thinking
-- Stakeholders: Product managers, developers, marketing, end users
-- Questioning: Design decision rationale, user research methodologies, and accessibility considerations`,
-
-      // Industry-specific niches
-      'fintech': `
-- Focus on fintech: Digital payments, blockchain, robo-advisors, regulatory compliance, financial APIs
-- Scenarios: Security breaches, regulatory changes, payment processing issues, fraud detection
-- Tools: Plaid, Stripe, AWS Financial Services, blockchain platforms, compliance tools
-- Skills: Financial regulations, security protocols, API integration, risk management
-- Stakeholders: Banks, regulators, payment processors, customers
-- Questioning: Regulatory compliance, security measures, and financial risk assessment`,
-
-      'healthtech': `
-- Focus on healthtech: EHR systems, telemedicine, medical devices, healthcare analytics, HIPAA compliance
-- Scenarios: Data privacy issues, system integration challenges, regulatory compliance, patient data security
-- Tools: Epic, Cerner, HL7, FHIR, DICOM, healthcare APIs
-- Skills: Healthcare regulations, data security, system integration, clinical workflows
-- Stakeholders: Healthcare providers, patients, insurance companies, regulators
-- Questioning: HIPAA compliance, patient data security, and healthcare system integration challenges`
-    };
-    
-    // If niche found, return specific requirements
-    if (nicheRequirements[nicheField]) {
-      return nicheRequirements[nicheField];
-    }
-    
-    // Fallback to field-specific requirements
-    return this.getFieldSpecificRequirementsInternal(majorField || nicheField);
-  }
-
-  // Get field-specific requirements for scenario generation - PRIVATE
-  private getFieldSpecificRequirementsInternal(fieldOfInterest: string): string {
-    const requirements = {
-      'technology': `
-- Include technical challenges like system architecture, code reviews, technology adoption
-- Use terminology: APIs, databases, frameworks, cloud services, DevOps, agile methodology
-- Stakeholders: Product managers, engineering teams, QA engineers, DevOps engineers
-- Common scenarios: System outages, technical debt, new feature development, security vulnerabilities
-- Skills to test: Technical leadership, system design, code quality, project management`,
-      
-      'business': `
-- Include strategic challenges like market analysis, resource allocation, stakeholder management
-- Use terminology: ROI, KPIs, strategic planning, market research, competitive analysis
-- Stakeholders: Executives, department heads, clients, board members, investors
-- Common scenarios: Budget constraints, strategic pivots, market expansion, process optimization
-- Skills to test: Strategic thinking, financial analysis, stakeholder management, decision-making`,
-      
-      'healthcare': `
-- Include patient care challenges, regulatory compliance, resource management
-- Use terminology: EHR systems, HIPAA compliance, patient outcomes, clinical protocols, quality metrics
-- Stakeholders: Physicians, nurses, administrators, patients, regulatory bodies, insurance providers
-- Common scenarios: Staffing shortages, regulatory changes, patient safety incidents, technology implementations
-- Skills to test: Clinical judgment, regulatory knowledge, patient advocacy, crisis management`,
-      
-      'education': `
-- Include curriculum development, student assessment, educational technology integration
-- Use terminology: Learning objectives, assessment strategies, pedagogical approaches, educational standards
-- Stakeholders: Students, teachers, administrators, parents, school boards, accrediting bodies
-- Common scenarios: Curriculum updates, technology adoption, student performance issues, budget cuts
-- Skills to test: Instructional design, student assessment, technology integration, educational leadership`,
-      
-      'creative': `
-- Include brand strategy, creative campaigns, client presentations, design critiques
-- Use terminology: Brand identity, user experience, creative brief, design thinking, visual hierarchy
-- Stakeholders: Creative directors, clients, marketing teams, developers, target audiences
-- Common scenarios: Rebranding projects, campaign launches, client feedback, creative blocks
-- Skills to test: Creative problem-solving, client management, design thinking, brand strategy`,
-      
-      'finance': `
-- Include financial analysis, risk assessment, regulatory compliance, investment decisions
-- Use terminology: Financial modeling, risk metrics, compliance requirements, investment portfolios
-- Stakeholders: CFOs, auditors, regulators, investors, risk managers, compliance officers
-- Common scenarios: Market volatility, regulatory changes, investment decisions, financial reporting
-- Skills to test: Financial analysis, risk management, regulatory knowledge, investment strategy`,
-      
-      'engineering': `
-- Include project management, technical design, safety protocols, quality assurance
-- Use terminology: Technical specifications, quality standards, safety protocols, project milestones
-- Stakeholders: Project managers, technical teams, safety officers, clients, regulatory bodies
-- Common scenarios: Design challenges, safety incidents, project delays, quality issues
-- Skills to test: Technical design, project management, safety awareness, quality control`,
-      
-      'sales': `
-- Include client relationship management, sales pipeline, negotiation, market analysis
-- Use terminology: CRM systems, sales funnel, lead generation, client acquisition, revenue targets
-- Stakeholders: Sales teams, clients, marketing, account managers, sales directors
-- Common scenarios: Deal negotiations, client objections, market competition, sales targets
-- Skills to test: Relationship building, negotiation, market analysis, sales strategy`,
-      
-      'operations': `
-- Include supply chain management, process optimization, vendor relations, logistics
-- Use terminology: Supply chain, inventory management, process efficiency, vendor management
-- Stakeholders: Suppliers, logistics teams, quality control, procurement, warehouse staff
-- Common scenarios: Supply chain disruptions, process inefficiencies, vendor issues, capacity planning
-- Skills to test: Process optimization, supply chain management, vendor relations, analytical thinking`,
-      
-      'hr': `
-- Include talent management, employee relations, policy development, organizational development
-- Use terminology: Talent acquisition, performance management, employee engagement, HR policies
-- Stakeholders: Employees, managers, executives, unions, legal counsel, external recruiters
-- Common scenarios: Talent shortages, employee conflicts, policy updates, organizational changes
-- Skills to test: Employee relations, policy development, talent management, organizational psychology`,
-      
-      'legal': `
-- Include contract negotiations, regulatory compliance, legal research, risk assessment
-- Use terminology: Legal research, contract law, regulatory compliance, risk mitigation, legal precedents
-- Stakeholders: Clients, legal teams, regulatory bodies, courts, opposing counsel
-- Common scenarios: Contract disputes, regulatory changes, compliance issues, litigation management
-- Skills to test: Legal research, contract analysis, regulatory knowledge, risk assessment`,
-      
-      'consulting': `
-- Include client problem-solving, strategic recommendations, change management, stakeholder alignment
-- Use terminology: Strategic analysis, change management, stakeholder alignment, implementation roadmap
-- Stakeholders: Client executives, project teams, steering committees, end users
-- Common scenarios: Strategic transformations, organizational changes, process improvements, culture change
-- Skills to test: Strategic thinking, change management, client relations, analytical problem-solving`,
-      
-      'data': `
-- Include data analysis, machine learning, business intelligence, data governance
-- Use terminology: Data pipelines, machine learning models, data visualization, statistical analysis
-- Stakeholders: Data scientists, business analysts, IT teams, business stakeholders, data engineers
-- Common scenarios: Data quality issues, model deployment, insights communication, data privacy
-- Skills to test: Data analysis, statistical thinking, business intelligence, technical communication`
-    };
-    
-    return requirements[fieldOfInterest] || requirements['business'];
-  }
 
   // Fallback skill details when API fails
   private getFallbackSkillDetails(skill: string): SkillDetail {
@@ -2196,162 +1585,7 @@ The professionals who invest in ${skill} development today will be the leaders a
       }
     };
   }
-}
 
-// Create singleton instance to ensure consistent state and avoid duplicate API clients
-const geminiServiceInstance = new GeminiService();
-
-/**
- * Exported geminiService object - Public API for Gemini service functionality
- * 
- * This object provides a clean interface to the GeminiService class instance.
- * All methods delegate to the singleton instance (geminiServiceInstance) to ensure
- * consistent state management (e.g., conversation history, scenario tracking).
- * 
- * Usage:
- * - geminiService.generateInitialQuestions(skills)
- * - geminiService.analyzeCareerFit(skills, responses, profile)
- * - geminiService.generateWorkplaceScenario(field, userProfile, previousResponses)
- */
-export const geminiService = {
-  // Generate initial 20 questions based on 5 selected skills
-  async generateInitialQuestions(selectedSkills: string[]): Promise<AdaptiveQuestion[]> {
-    try {
-      console.log('🚀 Generating 20 initial questions for skills:', selectedSkills);
-      
-      const prompt = `You are an expert career assessment specialist with expertise in psychometrics and skill evaluation. Generate exactly 20 comprehensive assessment questions to evaluate proficiency in these 5 skills: ${selectedSkills.join(', ')}.
-
-OBJECTIVE: Create questions that will help identify which 2 skills are the person's strongest areas through detailed assessment.
-
-REQUIREMENTS:
-- Generate exactly 4 questions per skill (20 total)
-- Use varied question types: multiple-choice (60%), scenario-based (25%), scale (15%)
-- Include questions that test both theoretical knowledge and practical application
-- Create realistic workplace scenarios that reveal problem-solving approaches
-- Design questions to differentiate between skill levels (beginner to expert)
-
-QUESTION QUALITY CRITERIA:
-- Each question should be specific and measurable
-- Options should reflect different skill levels and approaches
-- Include context that tests real-world application
-- Avoid obvious or leading answers
-- Test both hard skills and soft skill integration
-
-Return ONLY a JSON array with this exact structure:
-[{
-  "id": "skill_assessment_1",
-  "question": "When faced with a complex ${selectedSkills[0]} challenge that has no clear solution, what is your typical first approach?",
-  "type": "multiple-choice",
-  "options": [
-    "Break down the problem into smaller, manageable components",
-    "Research similar challenges and best practices", 
-    "Collaborate with experts to gather diverse perspectives",
-    "Experiment with different approaches and test results"
-  ],
-  "skillsAssessed": ["${selectedSkills[0]}"],
-  "difficulty": 3,
-  "scenario": "You're leading a project where traditional methods aren't working"
-}]`;
-
-      // Use the singleton instance to leverage better error handling
-      const result = await geminiServiceInstance['makeStructuredRequest'](prompt);
-      
-      if (!result) {
-        throw new Error('No response from Gemini API');
-      }
-      
-      console.log('📥 Generated 20 questions');
-      
-      // Define interface for initial question structure
-      interface InitialQuestion {
-        id?: string;
-        question: string;
-        type?: string;
-        options?: string[];
-        skillsAssessed?: string[];
-        difficulty?: number;
-        scenario?: string;
-      }
-      
-      const questions = result as InitialQuestion[];
-      return questions.map((q, index: number) => ({
-        id: q.id || `initial_${index + 1}`,
-        question: q.question,
-        type: (q.type as 'multiple-choice' | 'scale' | 'scenario' | 'ranking') || 'multiple-choice',
-        options: q.options || ['Strongly Agree', 'Agree', 'Neutral', 'Disagree'],
-        skillsAssessed: q.skillsAssessed || [selectedSkills[Math.floor(index / 4)]],
-        difficulty: q.difficulty || 3,
-        scenario: q.scenario
-      }));
-    } catch (error) {
-      console.error('❌ Error generating initial questions:', error);
-      console.log('🔄 Using fallback initial questions...');
-      return this.getFallbackInitialQuestions(selectedSkills);
-    }
-  },
-
-  // Fallback method for initial questions - generates 20 questions
-  getFallbackInitialQuestions(selectedSkills: string[]): AdaptiveQuestion[] {
-    console.log('🔄 Generating 20 fallback initial questions for skills:', selectedSkills);
-    const timestamp = Date.now();
-    const questions: AdaptiveQuestion[] = [];
-    
-    // Generate 4 questions per skill (5 skills × 4 = 20 questions)
-    selectedSkills.forEach((skill, skillIndex) => {
-      for (let i = 0; i < 4; i++) {
-        const questionTypes = [
-          {
-            question: `How confident are you in applying ${skill} in professional situations?`,
-            type: 'multiple-choice' as const,
-            options: [
-              'Very confident - I excel in this area',
-              'Confident - I handle most situations well', 
-              'Somewhat confident - I can manage basic tasks',
-              'Not confident - I need significant development'
-            ]
-          },
-          {
-            question: `When working with ${skill}, what motivates you most?`,
-            type: 'multiple-choice' as const,
-            options: [
-              'Solving complex challenges',
-              'Collaborating with others',
-              'Achieving measurable results',
-              'Learning and improving continuously'
-            ]
-          },
-          {
-            question: `Rate your current expertise level in ${skill}`,
-            type: 'scale' as const,
-            options: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
-          },
-          {
-            question: `In a team project requiring ${skill}, what role do you typically take?`,
-            type: 'multiple-choice' as const,
-            options: [
-              'Lead the initiative and guide others',
-              'Contribute expertise and support the team',
-              'Follow guidance while contributing ideas',
-              'Observe and learn from more experienced members'
-            ]
-          }
-        ];
-        
-        const questionTemplate = questionTypes[i % questionTypes.length];
-        questions.push({
-          id: `fallback_initial_${timestamp}_${skillIndex}_${i}`,
-          question: questionTemplate.question,
-          type: questionTemplate.type,
-          options: questionTemplate.options,
-          skillsAssessed: [skill],
-          difficulty: 2 + i // Varying difficulty from 2-5
-        });
-      }
-    });
-    
-    console.log('✅ Generated', questions.length, 'fallback initial questions');
-    return questions;
-  },
 
   // Analyze responses to find top 2 skills
   async findTopSkills(responses: QuizResponse[]): Promise<string[]> {
@@ -2395,7 +1629,7 @@ SCORING METHODOLOGY:
 Return ONLY a JSON array with the 2 strongest skills based on evidence from responses:
 ["skill_with_highest_demonstrated_proficiency", "skill_with_second_highest_proficiency"]`;
 
-      const result = await geminiServiceInstance['makeStructuredRequest'](prompt);
+      const result = await this.makeStructuredRequest(prompt);
       
       if (result && Array.isArray(result) && result.length >= 2) {
         console.log('✅ Top 2 skills identified:', result);
@@ -2409,268 +1643,7 @@ Return ONLY a JSON array with the 2 strongest skills based on evidence from resp
       console.log('🔄 Using fallback skill analysis due to error');
       return this.getFallbackTopSkills(responses);
     }
-  },
-
-  // Fallback method to determine top skills when API fails
-  getFallbackTopSkills(responses?: QuizResponse[]): string[] {
-    console.log('🔄 Using fallback method to determine top 2 skills');
-    
-    if (!responses || responses.length === 0) {
-      // Return most common professional skills as default
-      console.log('⚠️ No responses available, using default skills');
-      return ['Communication', 'Problem Solving'];
-    }
-    
-    // Count skill occurrences and calculate confidence scores
-    const skillScores = new Map<string, { count: number, totalScore: number }>();
-    
-    responses.forEach(response => {
-      response.skillsAssessed.forEach(skill => {
-        if (!skillScores.has(skill)) {
-          skillScores.set(skill, { count: 0, totalScore: 0 });
-        }
-        
-        const current = skillScores.get(skill)!;
-        current.count += 1;
-        
-        // Calculate score based on answer type
-        let score = 3; // Default neutral score
-        
-        if (typeof response.answer === 'string') {
-          const answer = response.answer.toLowerCase();
-          if (answer.includes('confident') || answer.includes('excel') || answer.includes('expert')) {
-            score = 5;
-          } else if (answer.includes('very') || answer.includes('strong') || answer.includes('lead')) {
-            score = 4;
-          } else if (answer.includes('not') || answer.includes('need') || answer.includes('developing')) {
-            score = 2;
-          }
-        } else if (typeof response.answer === 'number') {
-          score = Math.max(1, Math.min(5, response.answer / 2)); // Scale to 1-5
-        }
-        
-        current.totalScore += score;
-      });
-    });
-    
-    // Calculate average scores and rank skills
-    const rankedSkills = Array.from(skillScores.entries())
-      .map(([skill, data]) => ({
-        skill,
-        averageScore: data.totalScore / data.count,
-        count: data.count
-      }))
-      .sort((a, b) => {
-        // Sort by average score first, then by frequency
-        if (Math.abs(a.averageScore - b.averageScore) < 0.1) {
-          return b.count - a.count;
-        }
-        return b.averageScore - a.averageScore;
-      });
-    
-    const topSkills = rankedSkills.slice(0, 2).map(item => item.skill);
-    
-    // Ensure we have at least 2 skills
-    if (topSkills.length < 2) {
-      const fallbackSkills = ['Communication', 'Problem Solving', 'Leadership', 'Teamwork', 'Analytical Thinking'];
-      while (topSkills.length < 2) {
-        for (const skill of fallbackSkills) {
-          if (!topSkills.includes(skill)) {
-            topSkills.push(skill);
-            break;
-          }
-        }
-      }
-    }
-    
-    console.log('✅ Fallback analysis complete. Top skills:', topSkills);
-    return topSkills;
-  },
-
-  // Generate detailed learning path for top 2 skills
-  async generateDetailedLearningPath(
-    topSkills: string[], 
-    responses: QuizResponse[], 
-    userProfile: { name: string }
-  ): Promise<LearningPathItem[]> {
-    try {
-      console.log('📚 Generating detailed learning path for:', topSkills);
-      
-      const responseData = responses.map(r => ({
-        question: r.question,
-        answer: r.answer,
-        skills: r.skillsAssessed
-      }));
-
-      const prompt = `You are a senior learning and development specialist with expertise in creating personalized skill development programs. Generate a comprehensive learning path for these top 2 skills: ${topSkills.join(' & ')}.
-
-USER ASSESSMENT DATA:
-Name: ${userProfile.name}
-Top Skills: ${topSkills.join(', ')}
-Assessment Responses: ${JSON.stringify(responseData, null, 2)}
-
-CREATE A DETAILED LEARNING PATH:
-For each skill, provide 3-4 learning items with:
-1. Specific, actionable learning activities
-2. Realistic timelines (weeks/months)
-3. Concrete, measurable outcomes
-4. High-quality, specific resources (courses, books, platforms)
-5. Progressive difficulty levels
-
-QUALITY REQUIREMENTS:
-- Learning activities should be specific, not generic
-- Resources should be real, well-known platforms/courses
-- Outcomes should be measurable and career-relevant
-- Timeline should be realistic for working professionals
-- Include both theoretical and practical components
-
-Return ONLY this JSON structure:
-[
-  {
-    "skill": "${topSkills[0] || 'Skill Development'}",
-    "action": "Complete Google Project Management Professional Certificate",
-    "resources": ["Coursera - Google Project Management Certificate", "PMI.org resources", "Asana Academy project templates"],
-    "timeline": "3-4 months (5-7 hours/week)",
-    "measurableOutcome": "Earn certificate, complete 3 capstone projects, manage real project using Agile methodology",
-    "difficultyLevel": "Intermediate",
-    "prerequisites": "Basic understanding of project workflows"
-  },
-  {
-    "skill": "${topSkills[0] || 'Skill Development'}",
-    "action": "Build portfolio with advanced project management case studies",
-    "resources": ["Harvard Business Review case studies", "Project Management Institute templates", "Microsoft Project training"],
-    "timeline": "2-3 months (4-6 hours/week)",
-    "measurableOutcome": "Complete 5 detailed case study analyses, create project portfolio website, document lessons learned",
-    "difficultyLevel": "Advanced",
-    "prerequisites": "Completion of foundational certificate"
   }
-]`;
-
-      // Use the singleton instance to leverage better error handling
-      const result = await geminiServiceInstance['makeStructuredRequest'](prompt);
-      
-      if (!result) {
-        throw new Error('No response from Gemini API');
-      }
-      
-      // Define interface for learning path item
-      interface LearningPathItemResponse {
-        skill?: string;
-        action?: string;
-        resources?: string[];
-        timeline?: string;
-        measurableOutcome?: string;
-        difficultyLevel?: string;
-        prerequisites?: string;
-      }
-      
-      const learningPath = result as LearningPathItemResponse[];
-      
-      console.log('✅ Generated detailed learning path');
-      return learningPath.map((item) => ({
-        skill: item.skill || 'General Development',
-        action: item.action || 'Continue learning and practicing',
-        resources: item.resources || ['Online courses', 'Practice projects'],
-        timeline: item.timeline || '3-6 months',
-        measurableOutcome: item.measurableOutcome || 'Improved proficiency',
-        difficultyLevel: item.difficultyLevel,
-        prerequisites: item.prerequisites
-      }));
-    } catch (error) {
-      console.error('❌ Error generating detailed learning path:', error);
-      return this.getFallbackLearningPath(topSkills);
-    }
-  },
-
-  // Generate comprehensive personality analysis
-  async generatePersonalityAnalysis(
-    topSkills: string[],
-    responses: QuizResponse[],
-    userProfile: { name: string }
-  ): Promise<PersonalityTrait[]> {
-    try {
-      console.log('🧠 Generating comprehensive personality analysis');
-      
-      const responseData = responses.map(r => ({
-        question: r.question,
-        answer: r.answer,
-        skills: r.skillsAssessed,
-        reasoning: r.reasoning
-      }));
-
-      const prompt = `You are a senior organizational psychologist specializing in personality assessment and career development. Analyze this comprehensive assessment data to provide detailed personality insights.
-
-ASSESSMENT DATA:
-User: ${userProfile.name}
-Top Skills: ${topSkills.join(' & ')}
-Detailed Responses: ${JSON.stringify(responseData, null, 2)}
-
-ANALYSIS REQUIREMENTS:
-Generate 6-8 comprehensive personality traits based on response patterns:
-1. COGNITIVE STYLE (how they process information)
-2. DECISION MAKING APPROACH (systematic vs intuitive)
-3. LEADERSHIP ORIENTATION (collaborative vs directive)
-4. COMMUNICATION STYLE (direct vs diplomatic)
-5. LEARNING PREFERENCE (hands-on vs theoretical)
-6. WORK ENVIRONMENT FIT (structured vs flexible)
-7. STRESS RESPONSE PATTERN (how they handle pressure)
-8. INNOVATION MINDSET (conservative vs experimental)
-
-For each trait:
-- Score 1-10 based on response evidence
-- Provide detailed behavioral description
-- List specific career implications
-- Include workplace examples
-
-Return ONLY this JSON structure:
-[
-  {
-    "trait": "Cognitive Processing Style",
-    "score": 8,
-    "description": "Demonstrates systematic, analytical thinking with strong attention to detail. Prefers to gather comprehensive information before making decisions and enjoys breaking down complex problems into manageable components.",
-    "careerImplications": ["Research and analysis roles", "Strategic planning positions", "Quality assurance and auditing", "Technical writing and documentation"],
-    "workplaceExamples": ["Excels in data-driven roles", "Thorough in project planning", "Strong at risk assessment"]
-  },
-  {
-    "trait": "Leadership Approach",
-    "score": 7,
-    "description": "Shows collaborative leadership style with emphasis on team input and consensus building. Balances assertiveness with empathy and demonstrates strong emotional intelligence in team dynamics.",
-    "careerImplications": ["Team leadership roles", "Cross-functional coordination", "Change management positions", "HR and people development"],
-    "workplaceExamples": ["Facilitates effective meetings", "Builds strong team relationships", "Handles conflicts diplomatically"]
-  }
-]`;
-
-      // Use the singleton instance to leverage better error handling
-      const result = await geminiServiceInstance['makeStructuredRequest'](prompt);
-      
-      if (!result) {
-        throw new Error('No response from Gemini API');
-      }
-      
-      // Define interface for personality trait response
-      interface PersonalityTraitResponse {
-        trait?: string;
-        score?: number;
-        description?: string;
-        careerImplications?: string[];
-        workplaceExamples?: string[];
-      }
-      
-      const personalityTraits = result as PersonalityTraitResponse[];
-      
-      console.log('✅ Generated comprehensive personality analysis');
-      return personalityTraits.map((trait) => ({
-        trait: trait.trait || 'Professional Trait',
-        score: trait.score || 7,
-        description: trait.description || 'Strong professional capabilities',
-        careerImplications: trait.careerImplications || ['Various career paths'],
-        workplaceExamples: trait.workplaceExamples
-      }));
-    } catch (error) {
-      console.error('❌ Error generating personality analysis:', error);
-      return this.getFallbackPersonalityProfile(topSkills);
-    }
-  },
 
   // Generate detailed career roadmap
   async generateDetailedRoadmap(
@@ -2745,18 +1718,16 @@ Return ONLY this JSON structure:
   ]
 }`;
 
-      // Use the singleton instance to leverage better error handling
-      const result = await geminiServiceInstance['makeStructuredRequest'](prompt);
-      
-      if (!result) {
-        throw new Error('No response from Gemini API');
-      }
-      
-      const roadmap = result as {
-        immediate: Array<{title: string, description: string, timeline: string, priority: string}>;
-        shortTerm: Array<{title: string, description: string, timeline: string, priority: string}>;
-        longTerm: Array<{title: string, description: string, timeline: string, priority: string}>;
-      };
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const roadmap = JSON.parse(response.text());
       
       console.log('✅ Generated detailed career roadmap');
       return roadmap;
@@ -2764,7 +1735,35 @@ Return ONLY this JSON structure:
       console.error('❌ Error generating detailed roadmap:', error);
       return this.getFallbackDetailedRoadmap(topSkills, careerRecommendations);
     }
-  },
+  }
+
+  getFallbackDetailedRoadmap(
+    topSkills: string[], 
+    careerRecommendations: CareerRecommendation[]
+  ): DetailedRoadmap {
+    return [
+      {
+        title: 'Develop Core Skills',
+        description: 'Master the fundamental skills required for your career path.',
+        skills: topSkills,
+        workplaceExamples: ['Adapts to different team dynamics', 'Manages time effectively', 'Balances multiple priorities']
+      }
+    ];
+  }
+
+  getFallbackDetailedRoadmap(
+    topSkills: string[],
+    careerRecommendations: CareerRecommendation[]
+  ): DetailedRoadmap {
+    return [
+      {
+        title: 'Develop Core Skills',
+        description: 'Master the fundamental skills required for your career path.',
+        skills: topSkills,
+        workplaceExamples: ['Adapts to different team dynamics', 'Manages time effectively', 'Balances multiple priorities']
+      }
+    ];
+  }
 
   // Fallback methods for enhanced content
   getFallbackLearningPath(topSkills: string[]): LearningPathItem[] {
@@ -2792,7 +1791,7 @@ Return ONLY this JSON structure:
     });
     
     return learningItems;
-  },
+  }
 
   getFallbackPersonalityProfile(topSkills: string[]): PersonalityTrait[] {
     console.log('🔄 Using fallback personality profile for:', topSkills);
@@ -2930,7 +1929,8 @@ Return ONLY this JSON structure:
         }
       ]
     };
-  },
+  }
+
   async generateDeepDiveQuestions(topSkills: string[], previousResponses: QuizResponse[]): Promise<AdaptiveQuestion[]> {
     try {
       console.log('🎯 Generating 30 deep-dive questions for top skills:', topSkills);
@@ -2973,36 +1973,39 @@ Return ONLY a JSON array with this exact structure:
   "scenario": "professional context"
 }]`;
 
-      // Use the singleton instance to leverage better error handling
-      const result = await geminiServiceInstance['makeStructuredRequest'](prompt);
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.7,
+          maxOutputTokens: 8192
+        }
+      });
+
+      console.log('📡 Sending request to Gemini API...');
+      const result = await this.makeStructuredRequest(prompt);
+      
+      console.log('📥 Generated response from Gemini, processing...');
       
       if (!result) {
-        throw new Error('No response from Gemini API');
+        console.log('⚠️ No result from API, using fallback');
+        return this.getFallbackDeepDiveQuestions(topSkills.length > 0 ? topSkills : ['Problem Solving', 'Communication']);
       }
       
+      const questions = result;
+      
       // Ensure we have exactly 30 questions
-      let processedQuestions = Array.isArray(result) ? result.slice(0, 30) : []; // Take first 30 if more
+      let processedQuestions = Array.isArray(questions) ? questions.slice(0, 30) : []; // Take first 30 if more
       
       // If we have less than 30, pad with fallback questions
       if (processedQuestions.length < 30) {
         console.log(`⚠️ Only got ${processedQuestions.length} questions, padding to 30`);
-        const fallbackQuestions = this.getFallbackDeepDiveQuestions(topSkills.length > 0 ? topSkills : ['Problem Solving', 'Communication']);
+        const fallbackQuestions = this.getFallbackDeepDiveQuestions(topSkills);
         const needed = 30 - processedQuestions.length;
         processedQuestions = [...processedQuestions, ...fallbackQuestions.slice(0, needed)];
       }
       
-      // Define interface for deep dive question
-      interface DeepDiveQuestion {
-        id?: string;
-        question: string;
-        type?: string;
-        options?: string[];
-        skillsAssessed?: string[];
-        difficulty?: number;
-        scenario?: string;
-      }
-      
-      processedQuestions = processedQuestions.map((q: DeepDiveQuestion, index: number) => ({
+      processedQuestions = processedQuestions.map((q: any, index: number) => ({
         id: q.id || `deep_${index + 1}`,
         question: q.question,
         type: q.type || 'multiple-choice', 
@@ -3025,6 +2028,39 @@ Return ONLY a JSON array with this exact structure:
       // Return fallback deep-dive questions
       return this.getFallbackDeepDiveQuestions(topSkills.length > 0 ? topSkills : ['Problem Solving', 'Communication']);
     }
+  }
+
+  // Generate workplace scenarios based on user's field of interest
+  async generateWorkplaceScenario(
+    fieldOfInterest: string,
+    topSkills: string[],
+    allResponses: QuizResponse[],
+    userProfile: { name: string }
+  ): Promise<WorkplaceScenario> {
+    try {
+      console.log('🤖 Generating workplace scenario');
+
+      const responseData = allResponses.map(r => ({
+        question: r.question,
+        answer: r.answer,
+      }));
+
+      const prompt = `
+        Generate a workplace scenario based on the user's field of interest and top skills.
+        Field of Interest: ${fieldOfInterest}
+        Top Skills: ${topSkills.join(', ')}
+        Responses: ${JSON.stringify(responseData)}
+        User Profile: ${JSON.stringify(userProfile)}
+      `;
+
+      const response = await this.callOpenAI(prompt);
+      return JSON.parse(response);
+    } catch (error) {
+      console.error('❌ Error generating workplace scenario:', error);
+      console.log('🔄 Falling back to offline scenario...');
+      // Return fallback workplace scenario
+      return this.getFallbackWorkplaceScenario();
+    }
   },
 
   // Generate comprehensive career analysis and recommendations
@@ -3036,6 +2072,37 @@ Return ONLY a JSON array with this exact structure:
     try {
       console.log('🤖 Generating comprehensive career analysis');
       
+      const responseData = allResponses.map(r => ({
+        question: r.question,
+        answer: r.answer,
+      }));
+
+      const prompt = `
+        Generate a comprehensive career analysis and recommendations based on the user's top skills and responses.
+        Top Skills: ${topSkills.join(', ')}
+        Responses: ${JSON.stringify(responseData)}
+        User Profile: ${JSON.stringify(userProfile)}
+      `;
+
+      const response = await this.callOpenAI(prompt);
+      return JSON.parse(response);
+    } catch (error) {
+      console.error('❌ Error generating career analysis:', error);
+      console.log('🔄 Falling back to offline analysis...');
+      // Return fallback career analysis
+      return this.getFallbackCareerAnalysis();
+    }
+  },
+
+  // Generate deep-dive questions based on user's top skills
+  async generateDeepDiveQuestions(
+    topSkills: string[],
+    allResponses: QuizResponse[],
+    userProfile: { name: string }
+  ): Promise<DeepDiveQuestion[]> {
+    try {
+      console.log('🤖 Generating deep-dive questions');
+
       const responseData = allResponses.map(r => ({
         question: r.question,
         answer: r.answer,
@@ -3103,70 +2170,16 @@ Return ONLY this comprehensive JSON structure:
   "nextSteps": ["Immediate priority actions ranked by impact and urgency"]
 }`;
 
-      // Use the singleton instance to leverage better error handling
-      const result = await geminiServiceInstance['makeStructuredRequest'](prompt);
-      
-      if (!result) {
-        throw new Error('No response from Gemini API');
-      }
-      
-      // Define interface for career analysis response
-      interface CareerAnalysisResponse {
-        overallScore?: number;
-        topStrengths?: string[];
-        skillGaps?: Array<{
-          skill?: string;
-          currentLevel?: number;
-          requiredLevel?: number;
-          priority?: string;
-          developmentTime?: string;
-        }>;
-        careerRecommendations?: Array<{
-          title?: string;
-          match?: number;
-          description?: string;
-          salaryRange?: string;
-          growthOutlook?: string;
-          field?: string;
-          matchScore?: number;
-          growthProspects?: string;
-          requiredSkills?: string[];
-          timeToTransition?: string;
-        }>;
-        developmentPlan?: {
-          immediate?: string[];
-          shortTerm?: string[];
-          longTerm?: string[];
-        };
-        marketInsights?: {
-          demandLevel?: string;
-          competitionLevel?: string;
-          trendingSkills?: string[];
-        };
-      }
-      
-      interface SkillGapResponse {
-        skill?: string;
-        currentLevel?: number;
-        requiredLevel?: number;
-        priority?: string;
-        developmentTime?: string;
-      }
-      
-      interface CareerRecommendationResponse {
-        title?: string;
-        match?: number;
-        description?: string;
-        salaryRange?: string;
-        growthOutlook?: string;
-        field?: string;
-        matchScore?: number;
-        growthProspects?: string;
-        requiredSkills?: string[];
-        timeToTransition?: string;
-      }
-      
-      const analysis = result as CareerAnalysisResponse;
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const analysis = JSON.parse(response.text());
       
       console.log('✅ Comprehensive career analysis generated');
       
@@ -3181,14 +2194,14 @@ Return ONLY this comprehensive JSON structure:
       return {
         overallScore: analysis.overallScore || 85,
         topStrengths: analysis.topStrengths || topSkills,
-        skillGaps: (analysis.skillGaps || []).map((gap: SkillGapResponse) => ({
+        skillGaps: (analysis.skillGaps || []).map((gap: any) => ({
           skill: gap.skill || 'General Development',
           currentLevel: gap.currentLevel || 4,
           requiredLevel: gap.requiredLevel || 7,
-          priority: (gap.priority as 'high' | 'medium' | 'low') || 'medium',
+          priority: gap.priority || 'medium',
           developmentTime: gap.developmentTime || '3-6 months'
         })),
-        careerRecommendations: (analysis.careerRecommendations || []).map((rec: CareerRecommendationResponse) => ({
+        careerRecommendations: (analysis.careerRecommendations || []).map((rec: any) => ({
           title: rec.title || 'Career Opportunity',
           match: rec.match || 80,
           description: rec.description || 'Great career match based on your skills',
@@ -3200,10 +2213,10 @@ Return ONLY this comprehensive JSON structure:
           requiredSkills: rec.requiredSkills || topSkills,
           timeToTransition: rec.timeToTransition || '6-12 months'
         })),
-        developmentPlan: {
-          immediate: (analysis.developmentPlan?.immediate) || ['Update resume', 'Build portfolio'],
-          shortTerm: (analysis.developmentPlan?.shortTerm) || ['Apply to positions', 'Expand network'],
-          longTerm: (analysis.developmentPlan?.longTerm) || ['Advance to leadership', 'Specialize further']
+        developmentPlan: analysis.developmentPlan || {
+          immediate: ['Update resume', 'Build portfolio'],
+          shortTerm: ['Apply to positions', 'Expand network'],
+          longTerm: ['Advance to leadership', 'Specialize further']
         },
         detailedRoadmap: detailedRoadmap,
         marketInsights: {
@@ -3309,18 +2322,10 @@ Return ONLY this comprehensive JSON structure:
     }
   },
 
-  /**
-   * Generates a realistic workplace scenario tailored to the specified field or niche
-   * @param fieldOfInterest The main field of interest (e.g., 'technology', 'healthcare')
-   * @param userProfile User profile information including name and previous responses
-   * @param previousScenarios Array of previously used scenario descriptions to avoid repetition
-   * @param nicheField Optional specific niche within the field (e.g., 'web-development' within 'technology')
-   * @param majorField Optional parent field if nicheField is provided (e.g., 'technology' for 'web-development')
-   * @returns A promise resolving to a structured scenario with options and follow-up questions
-   */
+  // Generate workplace scenarios based on user's field of interest
   async generateWorkplaceScenario(
     fieldOfInterest: string,
-    userProfile: { name: string; previousResponses?: QuizResponse[] },
+    userBackground: { name: string; previousResponses?: QuizResponse[] },
     previousScenarios: string[] = [],
     nicheField?: string,
     majorField?: string
@@ -3336,275 +2341,348 @@ Return ONLY this comprehensive JSON structure:
     }>;
     followUpQuestions: string[];
   }> {
+    // Get the niche field name if provided
+    const nicheFieldName = nicheField ? this.getNicheFieldName(majorField || fieldOfInterest, nicheField) : null;
+    
+    const context = this.conversationHistory.join('\n');
+    const prompt = `
+      ${SYSTEM_PROMPTS.QUESTION_GENERATOR}
+      
+      IMPORTANT: Respond ONLY with valid JSON. No additional text or explanations.
+      
+      FIELD: ${fieldOfInterest}
+      ${nicheFieldName ? `NICHE AREA: ${nicheFieldName}` : ''}
+      User Background: ${JSON.stringify(userBackground)}
+      Previous Scenarios: ${previousScenarios.join(', ')}
+      
+      CREATE A FIELD-SPECIFIC SCENARIO THAT:
+      1. Reflects real ${fieldOfInterest}${nicheFieldName ? ` - ${nicheFieldName}` : ''} industry challenges and terminology
+      2. Tests decision-making skills relevant to ${fieldOfInterest}${nicheFieldName ? ` - ${nicheFieldName}` : ''} professionals
+      3. Reveals leadership potential in ${fieldOfInterest}${nicheFieldName ? ` - ${nicheFieldName}` : ''} contexts
+      4. Shows problem-solving approach using ${fieldOfInterest}${nicheFieldName ? ` - ${nicheFieldName}` : ''} methodologies
+      5. Demonstrates industry-specific knowledge and best practices
+      6. Assesses communication style relevant to ${fieldOfInterest}${nicheFieldName ? ` - ${nicheFieldName}` : ''} stakeholders
+      
+      FIELD-SPECIFIC REQUIREMENTS:
+      ${this.getFieldSpecificRequirements(fieldOfInterest)}
+      
+      ${nicheFieldName ? `NICHE-SPECIFIC FOCUS:
+      - Emphasize challenges and terminology specific to ${nicheFieldName}
+      - Include stakeholders and situations unique to ${nicheFieldName} within ${fieldOfInterest}
+      - Test knowledge of ${nicheFieldName} best practices and methodologies
+      - Present realistic options that ${nicheFieldName} professionals would face` : ''}
+      
+      Generate a workplace scenario that:
+      1. Is relevant to the user's field of interest
+      2. Builds on previous scenarios
+      3. Includes a clear challenge and multiple options
+      4. Provides follow-up questions for deeper exploration
+      
+      Return ONLY this JSON structure (no markdown, no extra text):
+      {
+        "scenario": "You're leading a project that's falling behind schedule. What's your first action?",
+        "context": "Your team is working on an important project with a tight deadline. You realize you're 20% behind schedule with only 2 weeks left.",
+        "challenge": "You need to get the project back on track without compromising quality.",
+        "options": [
+          {
+            "id": "o_1",
+            "text": "Analyze what's causing delays",
+            "skills": ["problem-solving", "critical thinking"],
+            "personality": ["analytical"]
+          },
+          {
+            "id": "o_2",
+            "text": "Increase team working hours",
+            "skills": ["time management"],
+            "personality": ["determined"]
+          },
+          {
+            "id": "o_3",
+            "text": "Request deadline extension",
+            "skills": ["negotiation"],
+            "personality": ["flexible"]
+          },
+          {
+            "id": "o_4",
+            "text": "Redistribute tasks among team",
+            "skills": ["leadership"],
+            "personality": ["collaborative"]
+          }
+        ],
+        "followUpQuestions": [
+          "What specific steps would you take to analyze the delays?",
+          "How would you communicate the need for increased working hours to the team?",
+          "What factors would you consider when negotiating the deadline extension?",
+          "How would you redistribute tasks to ensure the project stays on track?"
+        ]
+      }
+    `;
+
     try {
-      console.log('🎭 Generating workplace scenario for:', fieldOfInterest);
-      if (nicheField) {
-        console.log('   - Niche field:', nicheField);
-        console.log('   - Parent field:', majorField || fieldOfInterest);
-      }
-      console.log('📊 Previous scenarios count:', previousScenarios.length);
+      const result = await this.makeStructuredRequest(prompt);
+      this.addToContext(prompt, JSON.stringify(result));
       
-      const scenarioNumber = previousScenarios.length + 1;
-      const timestamp = Date.now();
-      
-      // Use niche field for more specific scenarios
-      const specificField = nicheField || fieldOfInterest;
-      const parentField = majorField || fieldOfInterest;
-      const isNicheScenario = !!nicheField;
-      
-      // Get niche-specific requirements if available
-      const fieldRequirements = isNicheScenario 
-        ? geminiServiceInstance['getNicheSpecificRequirementsInternal'](nicheField, parentField)
-        : geminiServiceInstance['getFieldSpecificRequirementsInternal'](fieldOfInterest);
-      
-      // Build the prompt with dynamic content based on niche/field
-      const prompt = `You are a senior career coach and industry expert specializing in ${specificField}${
-        isNicheScenario ? `, a niche within ${parentField}` : ''
-      }. Create a UNIQUE, highly realistic, ${
-        isNicheScenario ? 'NICHE-SPECIFIC' : 'FIELD-RELEVANT'
-      } workplace scenario that reflects actual challenges professionals face in ${specificField}.
-
-SCENARIO CONTEXT:
-- User: ${userProfile.name}
-- Primary Field: ${parentField}${isNicheScenario ? `\n- Niche: ${nicheField}` : ''}
-- Scenario #${scenarioNumber} (must be different from previous scenarios)
-- Previous scenarios to avoid: ${previousScenarios.length > 0 ? previousScenarios.join('; ') : 'None'}
-
-CRITICAL REQUIREMENTS:
-1. Create a COMPLETELY UNIQUE scenario that has NOT been used before
-2. Vary challenge types (technical, team, deadline, client, strategic, ethical, etc.)
-3. Use REAL ${specificField} terminology, tools, and processes
-4. Include specific ${specificField} stakeholders and challenges
-5. Make it realistic and current (2024 industry standards)
-6. Test actual decision-making skills used in ${specificField}
-7. Each scenario MUST be distinctly different from previous ones
-
-${isNicheScenario ? 'NICHE-SPECIFIC REQUIREMENTS' : 'FIELD REQUIREMENTS'} FOR ${specificField.toUpperCase()}:
-${fieldRequirements}
-
-SCENARIO STRUCTURE:
-1. Scenario Title: Clear, specific to ${specificField}, and engaging
-2. Context: 2-3 sentences setting up the situation with relevant details
-3. Challenge: Specific problem requiring professional decision-making
-4. Options: 4 distinct approaches with varying skills and personality traits
-5. Follow-up: 2-3 reflective questions about the scenario
-
-Return ONLY valid JSON (no markdown, no extra text) with this structure:
-{
-  "scenario": "[Concise, specific title reflecting the ${specificField} challenge]",
-  "context": "[2-3 sentences setting up the scenario with relevant ${specificField} context]",
-  "challenge": "[Specific problem requiring professional decision-making in 1-2 sentences]",
-  "options": [
-    {
-      "id": "option_1",
-      "text": "[Response showing specific ${specificField} approach 1]",
-      "skills": ["${specificField} skill 1", "${specificField} skill 2", "relevant soft skill"],
-      "personality": ["trait 1", "trait 2"]
-    },
-    {
-      "id": "option_2",
-      "text": "[Different ${specificField} approach 2]",
-      "skills": ["${specificField} skill 3", "different skill", "another skill"],
-      "personality": ["different trait", "another trait"]
-    },
-    {
-      "id": "option_3",
-      "text": "[Alternative ${specificField} strategy 3]",
-      "skills": ["${specificField} skill 4", "complementary skill", "soft skill"],
-      "personality": ["trait 3", "trait 4"]
-    },
-    {
-      "id": "option_4",
-      "text": "[Innovative ${specificField} solution 4]",
-      "skills": ["advanced ${specificField} skill", "strategic skill", "leadership skill"],
-      "personality": ["trait 5", "trait 6"]
-    }
-  ],
-  "followUpQuestions": [
-    "How would you evaluate the success of your chosen approach in this ${specificField} scenario?",
-    "What potential challenges might arise from your selected approach, and how would you address them?",
-    "How does this scenario reflect real-world challenges in ${specificField}?"
-  ]
-}`;
-
-      // Use the singleton instance to leverage better error handling
-      const result = await geminiServiceInstance['makeStructuredRequest'](prompt);
-      
-      if (!result) {
-        throw new Error('No response from Gemini API');
-      }
-      
-      console.log('✅ Dynamic workplace scenario generated successfully');
-      const scenarioResult = result as {
-        scenario: string;
-        context: string;
-        challenge: string;
-        options: Array<{
-          id: string;
-          text: string;
-          skills: string[];
-          personality: string[];
-        }>;
-        followUpQuestions: string[];
-      };
-      console.log('📊 Scenario title:', scenarioResult.scenario);
-      console.log('📊 Options count:', scenarioResult.options?.length || 0);
-      
-      return scenarioResult;
-    } catch (error) {
-      console.error('❌ Error generating workplace scenario:', error);
-      
-      // Check if it's a quota exceeded error
-      if (this.isQuotaExceededError(error)) {
-        console.log('⚠️ Quota exceeded, using fallback scenario');
+      // Type check the result before returning
+      if (result && typeof result === 'object' && 
+          'scenario' in result && 
+          'context' in result && 
+          'challenge' in result && 
+          'options' in result && 
+          'followUpQuestions' in result) {
+        return result as {
+          scenario: string;
+          context: string;
+          challenge: string;
+          options: Array<{
+            id: string;
+            text: string;
+            skills: string[];
+            personality: string[];
+          }>;
+          followUpQuestions: string[];
+        };
+      } else {
+        console.log('⚠️ Invalid response from Gemini API, using fallback scenario');
         return this.getFallbackScenario(fieldOfInterest);
       }
-      
-      // For other errors, still use fallback but log the error
-      console.log('⚠️ API error, using fallback scenario');
+    } catch (error) {
+      console.error('Error generating workplace scenario:', error);
       return this.getFallbackScenario(fieldOfInterest);
     }
-  },
+  }
 
-  // Get niche-specific requirements for scenario generation (more detailed than field requirements) - PRIVATE
-  
-  /**
-   * Generates multiple workplace scenarios in a single batch
-   * @param count Number of scenarios to generate
-   * @param fieldOfInterest The main field of interest (e.g., 'technology', 'healthcare')
-   * @param userProfile User profile information including name and previous responses
-   * @param previousScenarios Array of previously used scenario descriptions to avoid repetition
-   * @param nicheField Optional specific niche within the field
-   * @param majorField Optional parent field if nicheField is provided
-   * @returns A promise resolving to an array of structured scenarios
-   */
-  async generateWorkplaceScenarios(
-    count: number,
-    fieldOfInterest: string,
-    userProfile: { name: string; previousResponses?: QuizResponse[] },
-    previousScenarios: string[] = [],
-    nicheField?: string,
-    majorField?: string
-  ): Promise<Array<{
-    scenario: string;
-    context: string;
-    challenge: string;
-    options: Array<{
-      id: string;
-      text: string;
-      skills: string[];
-      personality: string[];
-    }>;
-    followUpQuestions: string[];
-  }>> {
-    try {
-      console.log(`🔄 Generating ${count} workplace scenarios for ${fieldOfInterest}...`);
-      
-      // If we have a niche field, use that for more specific scenarios
-      const field = nicheField || fieldOfInterest;
-      
-      // Generate all scenarios in parallel for better performance
-      const scenarioPromises = Array.from({ length: count }, (_, i) => 
-        this.generateWorkplaceScenario(
-          field,
-          userProfile,
-          [...previousScenarios],
-          nicheField,
-          majorField
-        ).catch(error => {
-          console.error(`❌ Error generating scenario ${i + 1}:`, error);
-          return this.getFallbackScenario(field);
-        })
-      );
-      
-      // Wait for all scenarios to be generated
-      const scenarios = await Promise.all(scenarioPromises);
-      
-      console.log(`✅ Successfully generated ${scenarios.length} scenarios`);
-      return scenarios;
-      
-    } catch (error) {
-      console.error('❌ Error in batch scenario generation:', error);
-      
-      // Fallback: Generate scenarios one by one if batch fails
-      try {
-        console.log('🔄 Falling back to sequential scenario generation...');
-        const fallbackScenarios = [];
-        for (let i = 0; i < count; i++) {
-          try {
-            const scenario = await this.generateWorkplaceScenario(
-              nicheField || fieldOfInterest,
-              userProfile,
-              [...previousScenarios],
-              nicheField,
-              majorField
-            );
-            fallbackScenarios.push(scenario);
-            if (scenario.scenario) {
-              previousScenarios.push(scenario.scenario);
-            }
-          } catch (scenarioError) {
-            console.error(`❌ Fallback scenario generation failed for scenario ${i + 1}:`, scenarioError);
-            fallbackScenarios.push(this.getFallbackScenario(nicheField || fieldOfInterest));
-          }
-        }
-        return fallbackScenarios;
-      } catch (fallbackError) {
-        console.error('❌ Fallback scenario generation completely failed:', fallbackError);
-        // Last resort: return all fallback scenarios
-        return Array(count).fill(null).map(() => 
-          this.getFallbackScenario(nicheField || fieldOfInterest)
-        );
+  // Helper method to get niche field name from ID
+  private getNicheFieldName(majorField: string, nicheId: string): string | null {
+    // This would typically come from a constant or configuration
+    // For now, we'll return the niche ID as the name
+    // In a real implementation, you'd map niche IDs to their display names
+    const nicheFieldsMap: Record<string, Record<string, string>> = {
+      'technology': {
+        'web-development': 'Web Development',
+        'mobile-development': 'Mobile Development',
+        'devops': 'DevOps & Cloud',
+        'data-science': 'Data Science',
+        'cybersecurity': 'Cybersecurity',
+        'game-development': 'Game Development'
+      },
+      'business': {
+        'strategy': 'Business Strategy',
+        'operations-management': 'Operations Management',
+        'project-management': 'Project Management',
+        'business-analysis': 'Business Analysis',
+        'entrepreneurship': 'Entrepreneurship',
+        'product-management': 'Product Management'
+      },
+      'healthcare': {
+        'clinical-management': 'Clinical Management',
+        'health-informatics': 'Health Informatics',
+        'public-health': 'Public Health',
+        'healthcare-administration': 'Healthcare Administration',
+        'nursing-leadership': 'Nursing Leadership',
+        'healthcare-consulting': 'Healthcare Consulting'
+      },
+      'education': {
+        'k12-education': 'K-12 Education',
+        'higher-education': 'Higher Education',
+        'educational-technology': 'Educational Technology',
+        'corporate-training': 'Corporate Training',
+        'curriculum-design': 'Curriculum Design',
+        'education-administration': 'Education Administration'
+      },
+      'creative': {
+        'ux-ui-design': 'UX/UI Design',
+        'graphic-design': 'Graphic Design',
+        'digital-marketing': 'Digital Marketing',
+        'content-creation': 'Content Creation',
+        'brand-management': 'Brand Management',
+        'advertising': 'Advertising'
+      },
+      'finance': {
+        'corporate-finance': 'Corporate Finance',
+        'investment-banking': 'Investment Banking',
+        'financial-planning': 'Financial Planning',
+        'risk-management': 'Risk Management',
+        'accounting': 'Accounting',
+        'fintech': 'FinTech'
+      },
+      'engineering': {
+        'software-engineering': 'Software Engineering',
+        'mechanical-engineering': 'Mechanical Engineering',
+        'electrical-engineering': 'Electrical Engineering',
+        'civil-engineering': 'Civil Engineering',
+        'systems-engineering': 'Systems Engineering',
+        'biomedical-engineering': 'Biomedical Engineering'
+      },
+      'sales': {
+        'b2b-sales': 'B2B Sales',
+        'b2c-sales': 'B2C Sales',
+        'saas-sales': 'SaaS Sales',
+        'sales-management': 'Sales Management',
+        'business-development': 'Business Development',
+        'inside-sales': 'Inside Sales'
+      },
+      'operations': {
+        'supply-chain': 'Supply Chain',
+        'operations-excellence': 'Operations Excellence',
+        'quality-management': 'Quality Management',
+        'facilities-management': 'Facilities Management',
+        'production-management': 'Production Management',
+        'inventory-management': 'Inventory Management'
+      },
+      'hr': {
+        'talent-acquisition': 'Talent Acquisition',
+        'hr-operations': 'HR Operations',
+        'organizational-development': 'Organizational Development',
+        'employee-relations': 'Employee Relations',
+        'compensation-benefits': 'Compensation & Benefits',
+        'hr-business-partner': 'HR Business Partner'
+      },
+      'legal': {
+        'corporate-law': 'Corporate Law',
+        'litigation': 'Litigation',
+        'compliance': 'Compliance',
+        'contract-law': 'Contract Law',
+        'intellectual-property': 'Intellectual Property',
+        'employment-law': 'Employment Law'
+      },
+      'consulting': {
+        'strategy-consulting': 'Strategy Consulting',
+        'technology-consulting': 'Technology Consulting',
+        'management-consulting': 'Management Consulting',
+        'financial-consulting': 'Financial Consulting',
+        'hr-consulting': 'HR Consulting',
+        'change-management': 'Change Management'
+      },
+      'data': {
+        'data-science': 'Data Science',
+        'data-engineering': 'Data Engineering',
+        'business-intelligence': 'Business Intelligence',
+        'data-analytics': 'Data Analytics',
+        'ai-ml': 'AI/ML Engineering',
+        'data-governance': 'Data Governance'
       }
-    }
+    };
+
+    return nicheFieldsMap[majorField]?.[nicheId] || nicheId;
+  }
+
+  // Get field-specific requirements for scenario generation
+  getFieldSpecificRequirements(fieldOfInterest: string): string {
+    const requirements = {
+      'technology': `
+- Include technical challenges like system architecture, code reviews, technology adoption
+- Use terminology: APIs, databases, frameworks, cloud services, DevOps, agile methodology
+- Stakeholders: Product managers, engineering teams, QA engineers, DevOps engineers
+- Common scenarios: System outages, technical debt, new feature development, security vulnerabilities
+- Skills to test: Technical leadership, system design, code quality, project management`,
+      
+      'business': `
+- Include strategic challenges like market analysis, resource allocation, stakeholder management
+- Use terminology: ROI, KPIs, strategic planning, market research, competitive analysis
+- Stakeholders: Executives, department heads, clients, board members, investors
+- Common scenarios: Budget constraints, strategic pivots, market expansion, process optimization
+- Skills to test: Strategic thinking, financial analysis, stakeholder management, decision-making`,
+      
+      'healthcare': `
+- Include patient care challenges, regulatory compliance, resource management
+- Use terminology: EHR systems, HIPAA compliance, patient outcomes, clinical protocols, quality metrics
+- Stakeholders: Physicians, nurses, administrators, patients, regulatory bodies, insurance providers
+- Common scenarios: Staffing shortages, regulatory changes, patient safety incidents, technology implementations
+- Skills to test: Clinical judgment, regulatory knowledge, patient advocacy, crisis management`,
+      
+      'education': `
+- Include curriculum development, student assessment, educational technology integration
+- Use terminology: Learning objectives, assessment strategies, pedagogical approaches, educational standards
+- Stakeholders: Students, teachers, administrators, parents, school boards, accrediting bodies
+- Common scenarios: Curriculum updates, technology adoption, student performance issues, budget cuts
+- Skills to test: Instructional design, student assessment, technology integration, educational leadership`,
+      
+      'creative': `
+- Include brand strategy, creative campaigns, client presentations, design critiques
+- Use terminology: Brand identity, user experience, creative brief, design thinking, visual hierarchy
+- Stakeholders: Creative directors, clients, marketing teams, developers, target audiences
+- Common scenarios: Rebranding projects, campaign launches, client feedback, creative blocks
+- Skills to test: Creative problem-solving, client management, design thinking, brand strategy`,
+      
+      'finance': `
+- Include financial analysis, risk assessment, regulatory compliance, investment decisions
+- Use terminology: Financial modeling, risk metrics, compliance requirements, investment portfolios
+- Stakeholders: CFOs, auditors, regulators, investors, risk managers, compliance officers
+- Common scenarios: Market volatility, regulatory changes, investment decisions, financial reporting
+- Skills to test: Financial analysis, risk management, regulatory knowledge, investment strategy`,
+      
+      'engineering': `
+- Include project management, technical design, safety protocols, quality assurance
+- Use terminology: Technical specifications, quality standards, safety protocols, project milestones
+- Stakeholders: Project managers, technical teams, safety officers, clients, regulatory bodies
+- Common scenarios: Design challenges, safety incidents, project delays, quality issues
+- Skills to test: Technical design, project management, safety awareness, quality control`,
+      
+      'sales': `
+- Include client relationship management, sales pipeline, negotiation, market analysis
+- Use terminology: CRM systems, sales funnel, lead generation, client acquisition, revenue targets
+- Stakeholders: Sales teams, clients, marketing, account managers, sales directors
+- Common scenarios: Deal negotiations, client objections, market competition, sales targets
+- Skills to test: Relationship building, negotiation, market analysis, sales strategy`,
+      
+      'operations': `
+- Include supply chain management, process optimization, vendor relations, logistics
+- Use terminology: Supply chain, inventory management, process efficiency, vendor management
+- Stakeholders: Suppliers, logistics teams, quality control, procurement, warehouse staff
+- Common scenarios: Supply chain disruptions, process inefficiencies, vendor issues, capacity planning
+- Skills to test: Process optimization, supply chain management, vendor relations, analytical thinking`,
+      
+      'hr': `
+- Include talent management, employee relations, policy development, organizational development
+- Use terminology: Talent acquisition, performance management, employee engagement, HR policies
+- Stakeholders: Employees, managers, executives, unions, legal counsel, external recruiters
+- Common scenarios: Talent shortages, employee conflicts, policy updates, organizational changes
+- Skills to test: Employee relations, policy development, talent management, organizational psychology`,
+      
+      'legal': `
+- Include contract negotiations, regulatory compliance, legal research, risk assessment
+- Use terminology: Legal research, contract law, regulatory compliance, risk mitigation, legal precedents
+- Stakeholders: Clients, legal teams, regulatory bodies, courts, opposing counsel
+- Common scenarios: Contract disputes, regulatory changes, compliance issues, litigation management
+- Skills to test: Legal research, contract analysis, regulatory knowledge, risk assessment`,
+      
+      'consulting': `
+- Include client problem-solving, strategic recommendations, change management, stakeholder alignment
+- Use terminology: Strategic analysis, change management, stakeholder alignment, implementation roadmap
+- Stakeholders: Client executives, project teams, steering committees, end users
+- Common scenarios: Strategic transformations, organizational changes, process improvements, culture change
+- Skills to test: Strategic thinking, change management, client relations, analytical problem-solving`,
+      
+      'data': `
+- Include data analysis, machine learning, business intelligence, data governance
+- Use terminology: Data pipelines, machine learning models, data visualization, statistical analysis
+- Stakeholders: Data scientists, business analysts, IT teams, business stakeholders, data engineers
+- Common scenarios: Data quality issues, model deployment, insights communication, data privacy
+- Skills to test: Data analysis, statistical thinking, business intelligence, technical communication`
+    };
+    
+    return requirements[fieldOfInterest] || requirements['business'];
   },
 
   async analyzeScenarioResponses(
     fieldOfInterest: string,
-    responses: ScenarioResponseInput[]
+    responses: any[]
   ): Promise<any> {
     try {
       console.log('📊 Analyzing scenario responses for:', fieldOfInterest);
-      console.log('📋 Number of responses:', responses.length);
       
-      // Properly structure the response data with extracted option details
-      const responseData = responses.map((r, index) => ({
-        scenarioNumber: index + 1,
+      const responseData = responses.map(r => ({
         scenario: r.scenario,
-        selectedOption: {
-          id: r.selectedOption?.id || '',
-          text: r.selectedOption?.text || '',
-          skills: r.selectedOption?.skills || [],
-          personality: r.selectedOption?.personality || []
-        },
-        reasoning: r.reasoning || ''
-      }));
-
-      // Create questionResponses structure for compatibility
-      const questionResponses = responses.map((r, index) => ({
-        questionId: `scenario_${index + 1}`,
-        question: r.scenario,
-        answer: r.selectedOption?.text || r.selectedOption?.id || '',
-        reasoning: r.reasoning,
-        skillsAssessed: r.selectedOption?.skills || [],
-        timestamp: new Date()
+        choice: r.selectedOption,
+        reasoning: r.reasoning
       }));
 
       const prompt = `You are a senior career strategist specializing in ${fieldOfInterest}. Analyze these scenario responses for field-specific insights.
 
 FIELD: ${fieldOfInterest}
-NUMBER OF RESPONSES: ${responses.length}
+RESPONSES: ${JSON.stringify(responseData, null, 2)}
 
-SCENARIO RESPONSES:
-${JSON.stringify(responseData, null, 2)}
-
-For each response, analyze:
-- The scenario context and challenge
-- The selected option choice (text, skills demonstrated, personality traits)
-- The reasoning provided (if any)
-- Patterns across all responses
-
-Analyze the decision patterns and provide ${fieldOfInterest}-specific career insights based on the ACTUAL choices made.
+Analyze the decision patterns and provide ${fieldOfInterest}-specific career insights.
 
 Return ONLY this JSON:
 {
@@ -3629,62 +2707,39 @@ Return ONLY this JSON:
     {
       "title": "Senior ${fieldOfInterest} Professional",
       "match": 90,
-      "matchScore": 90,
       "description": "${fieldOfInterest} role description",
       "salaryRange": "$80,000 - $120,000",
       "field": "${fieldOfInterest}",
-      "requiredSkills": ["${fieldOfInterest} skill 1", "${fieldOfInterest} skill 2"],
-      "timeToTransition": "6-12 months",
-      "growthProspects": "Strong growth in ${fieldOfInterest}"
+      "requiredSkills": ["${fieldOfInterest} skill 1", "${fieldOfInterest} skill 2"]
     }
   ],
   "personalityProfile": [
     {
       "trait": "${fieldOfInterest} Leadership",
       "score": 8,
-      "description": "${fieldOfInterest} leadership description based on scenario choices",
-      "careerImplications": ["${fieldOfInterest} career path"],
-      "workplaceExamples": ["Example behavior from responses"]
+      "description": "${fieldOfInterest} leadership description",
+      "careerImplications": ["${fieldOfInterest} career path"]
     }
-  ],
-  "workStylePreferences": ["${fieldOfInterest}-relevant preferences"],
-  "developmentAreas": ["${fieldOfInterest}-specific skill gaps"]
+  ]
 }`;
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
 
-      // Use the singleton instance to leverage better error handling
-      const result = await geminiServiceInstance['makeStructuredRequest'](prompt);
-      
-      if (!result) {
-        throw new Error('No response from Gemini API');
-      }
-      
-      // Merge the AI analysis with questionResponses for compatibility
-      const analysis = {
-        ...(result as any),
-        questionResponses: questionResponses
-      };
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const analysis = JSON.parse(response.text());
       
       console.log('✅ Comprehensive scenario analysis complete');
-      console.log('📊 Question responses included:', questionResponses.length);
       return analysis;
     } catch (error) {
       console.error('❌ Error analyzing scenario responses:', error);
       
-      // Return comprehensive fallback analysis with questionResponses
-      const fallbackAnalysis = this.getFallbackScenarioAnalysis(fieldOfInterest);
-      const questionResponses = responses.map((r, index) => ({
-        questionId: `scenario_${index + 1}`,
-        question: r.scenario,
-        answer: r.selectedOption?.text || r.selectedOption?.id || '',
-        reasoning: r.reasoning,
-        skillsAssessed: r.selectedOption?.skills || [],
-        timestamp: new Date()
-      }));
-      
-      return {
-        ...fallbackAnalysis,
-        questionResponses: questionResponses
-      };
+      // Return comprehensive fallback analysis
+      return this.getFallbackScenarioAnalysis(fieldOfInterest);
     }
   },
 
@@ -3717,7 +2772,7 @@ Return ONLY this JSON:
 }`;
 
       const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.5-flash",
+        model: "gemini-1.5-flash",
         generationConfig: {
           responseMimeType: "application/json"
         }
@@ -3927,33 +2982,32 @@ Return ONLY this JSON:
     return questions;
   },
 
-  // Generate detailed skill information using the singleton instance
+  // Generate detailed skill information using the class method
   async generateSkillDetails(
     topSkills: string[],
     responses: QuizResponse[],
     userProfile: { name: string }
   ): Promise<SkillDetail[]> {
-    return await geminiServiceInstance.generateSkillDetails(topSkills, responses, userProfile);
+    // Create a temporary instance to use the class method
+    const instance = new GeminiService();
+    return await instance.generateSkillDetails(topSkills, responses, userProfile);
   },
 
   // Get fallback skill details
   getFallbackSkillDetails(skill: string): SkillDetail {
-    return geminiServiceInstance['getFallbackSkillDetails'](skill);
+    const instance = new GeminiService();
+    return instance['getFallbackSkillDetails'](skill);
   },
 
   // Get fallback scenario
   getFallbackScenario(field: string) {
-    return geminiServiceInstance['getFallbackScenario'](field);
-  },
-
-  // Reset scenario tracking for new assessments
-  resetScenarioTracking() {
-    return geminiServiceInstance.resetScenarioTracking();
+    const instance = new GeminiService();
+    return instance['getFallbackScenario'](field);
   },
 
   // Check if error is due to quota exceeded
-  isQuotaExceededError(error: unknown): boolean {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+  isQuotaExceededError(error: any): boolean {
+    const errorMessage = error?.message || error?.toString() || '';
     return errorMessage.includes('429') || 
            errorMessage.includes('quota') || 
            errorMessage.includes('exceeded') ||
@@ -3961,8 +3015,8 @@ Return ONLY this JSON:
   },
 
   // Check if error is a network/connection issue
-  isConnectionError(error: unknown): boolean {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+  isConnectionError(error: any): boolean {
+    const errorMessage = error?.message || error?.toString() || '';
     return errorMessage.includes('503') || 
            errorMessage.includes('overloaded') ||
            errorMessage.includes('network') ||
@@ -3972,7 +3026,7 @@ Return ONLY this JSON:
   // Analyze scenario responses specifically for personality traits
   async analyzeScenarioResponsesForPersonality(
     fieldOfInterest: string,
-    scenarioResults: ScenarioResults
+    scenarioResults: any
   ): Promise<{ personalityProfile: PersonalityTrait[] }> {
     try {
       console.log('🧠 Analyzing scenario responses for personality insights');
@@ -4021,10 +3075,11 @@ Return ONLY this JSON structure:
   ]
 }`;
 
-      // Use the makeStructuredRequest from the singleton instance
-      const result = await geminiServiceInstance['makeStructuredRequest'](prompt);
+      // Use the makeStructuredRequest from the class instance
+      const instance = new GeminiService();
+      const result: any = await instance['makeStructuredRequest'](prompt);
       
-      if (result && typeof result === 'object' && 'personalityProfile' in result) {
+      if (result && result.personalityProfile) {
         console.log('✅ Generated dynamic personality analysis from scenario responses');
         return result as { personalityProfile: PersonalityTrait[] };
       } else {
@@ -4040,7 +3095,7 @@ Return ONLY this JSON structure:
   // Fallback personality analysis based on scenario results
   getFallbackPersonalityFromScenarios(
     fieldOfInterest: string,
-    scenarioResults: ScenarioResults
+    scenarioResults: any
   ): { personalityProfile: PersonalityTrait[] } {
     console.log('🔄 Using fallback personality analysis for scenario responses');
     
@@ -4104,50 +3159,72 @@ Return ONLY this JSON structure:
     return { personalityProfile: baseTraits };
   },
 
-
+  // Fallback method for initial questions - generates 20 questions
+  getFallbackInitialQuestions(selectedSkills: string[]): AdaptiveQuestion[] {
+    console.log('🔄 Generating 20 fallback initial questions for skills:', selectedSkills);
+    const timestamp = Date.now();
+    const questions: AdaptiveQuestion[] = [];
+    
+    // Generate 4 questions per skill (5 skills × 4 = 20 questions)
+    selectedSkills.forEach((skill, skillIndex) => {
+      for (let i = 0; i < 4; i++) {
+        const questionTypes = [
+          {
+            question: `How confident are you in applying ${skill} in professional situations?`,
+            type: 'multiple-choice' as const,
+            options: [
+              'Very confident - I excel in this area',
+              'Confident - I handle most situations well', 
+              'Somewhat confident - I can manage basic tasks',
+              'Not confident - I need significant development'
+            ]
+          },
+          {
+            question: `When working with ${skill}, what motivates you most?`,
+            type: 'multiple-choice' as const,
+            options: [
+              'Solving complex challenges',
+              'Collaborating with others',
+              'Achieving measurable results',
+              'Learning and improving continuously'
+            ]
+          },
+          {
+            question: `Rate your current expertise level in ${skill}`,
+            type: 'scale' as const,
+            options: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+          },
+          {
+            question: `In a team project requiring ${skill}, what role do you typically take?`,
+            type: 'multiple-choice' as const,
+            options: [
+              'Lead the initiative and guide others',
+              'Contribute expertise and support the team',
+              'Follow guidance while contributing ideas',
+              'Observe and learn from more experienced members'
+            ]
+          }
+        ];
+        
+        const questionTemplate = questionTypes[i % questionTypes.length];
+        questions.push({
+          id: `fallback_initial_${timestamp}_${skillIndex}_${i}`,
+          question: questionTemplate.question,
+          type: questionTemplate.type,
+          options: questionTemplate.options,
+          skillsAssessed: [skill],
+          difficulty: 2 + i // Varying difficulty from 2-5
+        });
+      }
+    });
+    
+    console.log('✅ Generated', questions.length, 'fallback initial questions');
+    return questions;
+  }
 };
 
 // Test API connectivity on initialization
-console.log('🚀 Gemini Service initialized with API key:', API_KEY ? API_KEY.substring(0, 10) + '...' : 'Not set');
-
-// Function to list available models by testing common model names
-export const listAvailableModels = async () => {
-  console.log('🔍 Testing available Gemini models...');
-  const modelNames = [
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-001',
-    'gemini-2.5-flash-lite'
-  ];
-  
-  const availableModels: string[] = [];
-  
-  for (const modelName of modelNames) {
-    try {
-      const model = genAI.getGenerativeModel({ model: modelName });
-      // Try a minimal request to see if the model is available
-      await model.generateContent('test');
-      availableModels.push(modelName);
-      console.log(`✅ ${modelName} is available`);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      if (!errorMsg.includes('404') && !errorMsg.includes('not found')) {
-        // Model exists but might have other issues (quota, etc.)
-        availableModels.push(modelName);
-        console.log(`⚠️ ${modelName} exists but may have issues: ${errorMsg.substring(0, 100)}`);
-      } else {
-        console.log(`❌ ${modelName} is not available`);
-      }
-    }
-  }
-  
-  return {
-    success: true,
-    models: availableModels,
-    testedModels: modelNames
-  };
-};
+console.log('🚀 Gemini Service initialized with API key:', API_KEY.substring(0, 10) + '...');
 
 // Simple test function to verify API connectivity
 export const testGeminiAPI = async () => {
@@ -4161,6 +3238,8 @@ export const testGeminiAPI = async () => {
     return { success: true, questionsCount: testQuestions.length };
   } catch (error) {
     console.error('❌ Gemini API test failed:', error);
-    return { success: false, error: error.message };
+    return { success: false, error: (error as Error).message };
   }
 };
+
+

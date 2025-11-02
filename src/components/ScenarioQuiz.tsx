@@ -12,6 +12,8 @@ import { useToast } from "@/hooks/use-toast";
 interface ScenarioQuizProps {
   fieldOfInterest: string;
   userName: string;
+  nicheField?: string;
+  majorField?: string;
   onComplete: (results: any) => void;
 }
 
@@ -22,84 +24,76 @@ interface ScenarioResponse {
   timestamp: Date;
 }
 
-export const ScenarioQuiz = ({ fieldOfInterest, userName, onComplete }: ScenarioQuizProps) => {
-  const [currentScenario, setCurrentScenario] = useState<any>(null);
+export const ScenarioQuiz = ({ fieldOfInterest, userName, nicheField, majorField, onComplete }: ScenarioQuizProps) => {
+  const [scenarios, setScenarios] = useState<any[]>([]);
+  const [currentScenarioIndex, setCurrentScenarioIndex] = useState(0);
   const [responses, setResponses] = useState<ScenarioResponse[]>([]);
   const [selectedOption, setSelectedOption] = useState<string>("");
   const [reasoning, setReasoning] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingNext, setIsGeneratingNext] = useState(false);
-  const [scenarioCount, setScenarioCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
   const totalScenarios = 5;
+  const currentScenario = scenarios[currentScenarioIndex];
 
   useEffect(() => {
-    generateFirstScenario();
-  }, [fieldOfInterest]);
-
-  const generateFirstScenario = async () => {
-    setIsLoading(true);
-    try {
-      const scenario = await geminiService.generateWorkplaceScenario(
-        fieldOfInterest,
-        { name: userName },
-        []
-      );
-      setCurrentScenario(scenario);
-      setScenarioCount(1);
-    } catch (error) {
-      console.error('Error generating scenario:', error);
+    // Reset scenario tracking for new assessment
+    geminiService.resetScenarioTracking();
+    
+    const generateScenarios = async () => {
+      setIsLoading(true);
+      setError(null);
       
-      // Check if it's a quota exceeded error
-      if (error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('exceeded')) {
-        toast({
-          title: "AI Quota Reached",
-          description: "We've reached our daily AI limit. Using pre-designed scenarios to continue your assessment.",
-          variant: "default",
-        });
+      try {
+        // Use the batch generation method to get all scenarios at once
+        const generatedScenarios = await geminiService.generateWorkplaceScenarios(
+          totalScenarios,
+          nicheField || fieldOfInterest,
+          { name: userName, previousResponses: [] },
+          [],
+          nicheField,
+          majorField
+        );
         
-        // Generate fallback scenario immediately
+        setScenarios(generatedScenarios);
+      } catch (error) {
+        console.error('Error generating scenarios:', error);
+        setError('Failed to generate scenarios. Using fallback scenarios...');
+        
+        // Fallback to individual scenario generation if batch fails
         try {
-          const fallbackScenario = geminiService.getFallbackScenario(fieldOfInterest);
-          setCurrentScenario(fallbackScenario);
-          setScenarioCount(1);
+          const fallbackScenarios = [];
+          for (let i = 0; i < totalScenarios; i++) {
+            const scenario = await geminiService.generateWorkplaceScenario(
+              nicheField || fieldOfInterest,
+              { name: userName, previousResponses: [] },
+              [],
+              nicheField,
+              majorField
+            );
+            fallbackScenarios.push(scenario);
+          }
+          setScenarios(fallbackScenarios);
         } catch (fallbackError) {
           console.error('Fallback scenario generation failed:', fallbackError);
-          toast({
-            title: "Error",
-            description: "Unable to generate scenarios. Please try again later.",
-            variant: "destructive",
-          });
+          // Use pre-defined scenarios as last resort
+          const predefinedScenarios = Array(totalScenarios).fill(null).map(() => 
+            geminiService.getFallbackScenario(nicheField || fieldOfInterest)
+          );
+          setScenarios(predefinedScenarios);
         }
-      } else {
-        toast({
-          title: "Connection Issue",
-          description: "Having trouble connecting to AI services. Using offline scenarios to continue.",
-          variant: "default",
-        });
-        
-        // Try fallback scenario for any other error
-        try {
-          const fallbackScenario = geminiService.getFallbackScenario(fieldOfInterest);
-          setCurrentScenario(fallbackScenario);
-          setScenarioCount(1);
-        } catch (fallbackError) {
-          console.error('Fallback scenario generation failed:', fallbackError);
-          toast({
-            title: "Error",
-            description: "Unable to generate scenarios. Please try again later.",
-            variant: "destructive",
-          });
-        }
+      } finally {
+        setIsLoading(false);
       }
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    };
+    
+    generateScenarios();
+  }, [fieldOfInterest, nicheField, majorField, userName, totalScenarios]);
 
   const handleScenarioSubmit = async () => {
-    if (!selectedOption) return;
+    if (!selectedOption || !currentScenario) return;
 
     const selectedOptionData = currentScenario.options.find(
       (opt: any) => opt.id === selectedOption
@@ -116,91 +110,100 @@ export const ScenarioQuiz = ({ fieldOfInterest, userName, onComplete }: Scenario
     setResponses(updatedResponses);
 
     // Check if we've completed all scenarios
-    if (scenarioCount >= totalScenarios) {
+    if (currentScenarioIndex >= scenarios.length - 1) {
       try {
+        setIsGeneratingNext(true);
         const analysis = await geminiService.analyzeScenarioResponses(
           fieldOfInterest,
           updatedResponses
         );
         onComplete(analysis);
       } catch (error) {
+        console.error('Error analyzing responses:', error);
         toast({
           title: "Error",
           description: "Failed to analyze responses. Please try again.",
           variant: "destructive",
         });
+      } finally {
+        setIsGeneratingNext(false);
       }
       return;
     }
 
-    // Generate next scenario
+    // Move to the next pre-fetched scenario
     setIsGeneratingNext(true);
     try {
-      const nextScenario = await geminiService.generateWorkplaceScenario(
-        fieldOfInterest,
-        { name: userName, previousResponses: updatedResponses },
-        updatedResponses.map(r => r.scenario)
-      );
-      
-      setCurrentScenario(nextScenario);
-      setScenarioCount(prev => prev + 1);
+      setCurrentScenarioIndex(prev => prev + 1);
       setSelectedOption("");
       setReasoning("");
     } catch (error) {
-      console.error('Error generating next scenario:', error);
-      
-      // Check if it's a quota exceeded error
-      if (error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('exceeded')) {
-        toast({
-          title: "AI Quota Reached",
-          description: "Continuing with pre-designed scenarios.",
-          variant: "default",
-        });
-      } else {
-        toast({
-          title: "Connection Issue", 
-          description: "Using offline scenarios to continue your assessment.",
-          variant: "default",
-        });
-      }
-      
-      // Use fallback scenario
-      try {
-        const fallbackScenario = geminiService.getFallbackScenario(fieldOfInterest);
-        setCurrentScenario(fallbackScenario);
-        setScenarioCount(prev => prev + 1);
-        setSelectedOption("");
-        setReasoning("");
-      } catch (fallbackError) {
-        console.error('Fallback scenario failed:', fallbackError);
-        toast({
-          title: "Error",
-          description: "Unable to continue. Please try again.",
-          variant: "destructive",
-        });
-      }
+      console.error('Error moving to next scenario:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load the next scenario.",
+        variant: "destructive",
+      });
     } finally {
       setIsGeneratingNext(false);
     }
   };
 
-  if (isLoading) {
+  if (isLoading || scenarios.length === 0) {
+    const progress = Math.min(100, Math.round((scenarios.length / totalScenarios) * 100));
+    
     return (
       <div className="max-w-4xl mx-auto text-center">
         <Card className="p-8">
-          <div className="animate-pulse space-y-4">
-            <div className="h-6 bg-secondary rounded w-3/4 mx-auto"></div>
-            <div className="h-4 bg-secondary rounded w-full"></div>
-            <div className="h-4 bg-secondary rounded w-5/6 mx-auto"></div>
+          <div className="space-y-6">
             <div className="space-y-2">
-              <div className="h-10 bg-secondary rounded"></div>
-              <div className="h-10 bg-secondary rounded"></div>
-              <div className="h-10 bg-secondary rounded"></div>
+              <h2 className="text-2xl font-bold">Preparing Your Assessment</h2>
+              <p className="text-muted-foreground">
+                We're generating realistic {fieldOfInterest} scenarios for your assessment...
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Generating scenarios...</span>
+                <span>{scenarios.length} of {totalScenarios} ready</span>
+              </div>
+              <Progress value={progress} className="h-2" />
+              <p className="text-sm text-muted-foreground">
+                {progress < 100 ? 'This may take a moment...' : 'Almost ready!'}
+              </p>
+            </div>
+            
+            <div className="animate-pulse space-y-4 mt-8">
+              <div className="h-6 bg-secondary/20 rounded w-3/4 mx-auto"></div>
+              <div className="h-4 bg-secondary/20 rounded w-full"></div>
+              <div className="h-4 bg-secondary/20 rounded w-5/6 mx-auto"></div>
+              <div className="space-y-2 pt-4">
+                <div className="h-12 bg-secondary/20 rounded"></div>
+                <div className="h-12 bg-secondary/20 rounded"></div>
+                <div className="h-12 bg-secondary/20 rounded"></div>
+              </div>
             </div>
           </div>
-          <p className="mt-6 text-muted-foreground">
-            🤖 AI is creating a personalized {fieldOfInterest} scenario for you...
+        </Card>
+      </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <div className="max-w-2xl mx-auto text-center">
+        <Card className="p-8">
+          <h2 className="text-xl font-bold mb-4">Unable to Generate Scenarios</h2>
+          <p className="text-muted-foreground mb-6">
+            {error}
           </p>
+          <Button 
+            onClick={() => window.location.reload()}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Loading...' : 'Try Again'}
+          </Button>
         </Card>
       </div>
     );
@@ -210,26 +213,29 @@ export const ScenarioQuiz = ({ fieldOfInterest, userName, onComplete }: Scenario
     return (
       <div className="max-w-2xl mx-auto text-center">
         <Card className="p-8">
-          <h2 className="text-xl font-bold mb-4">Unable to Generate Scenario</h2>
+          <h2 className="text-xl font-bold mb-4">No Scenarios Available</h2>
           <p className="text-muted-foreground mb-6">
-            We're having trouble creating your personalized scenario. Please try again.
+            We're having trouble loading your scenarios. Please try refreshing the page.
           </p>
-          <Button onClick={generateFirstScenario}>
-            Retry
+          <Button 
+            onClick={() => window.location.reload()}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Loading...' : 'Refresh'}
           </Button>
         </Card>
       </div>
     );
   }
 
-  const progress = (scenarioCount / totalScenarios) * 100;
+  const progress = ((currentScenarioIndex) / totalScenarios) * 100;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Progress */}
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
-          <span>Scenario {scenarioCount} of {totalScenarios}</span>
+          <span>Scenario {currentScenarioIndex + 1} of {totalScenarios}</span>
           <span>{Math.round(progress)}% Complete</span>
         </div>
         <Progress value={progress} className="h-2" />
@@ -335,8 +341,8 @@ export const ScenarioQuiz = ({ fieldOfInterest, userName, onComplete }: Scenario
               className="gradient-primary"
             >
               {isGeneratingNext ? (
-                <>🤖 Generating Next Scenario...</>
-              ) : scenarioCount >= totalScenarios ? (
+                <>🤖 Analyzing Your Responses...</>
+              ) : currentScenarioIndex >= totalScenarios - 1 ? (
                 <>🎯 Complete Analysis</>
               ) : (
                 <>Continue to Next Scenario</>
