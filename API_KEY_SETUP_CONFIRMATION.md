@@ -6,7 +6,7 @@ Your Gemini API key has been successfully integrated into the CareerQuest projec
 
 ### 📋 Configuration Details
 
-- **API Key:** `AIzaSyC6CKRFhtpxau5uYQYabGkVBfEhMaJDiNA`
+- **API Key:** `[Stored in .env.local]` (Not exposed in code)
 - **Location:** `.env.local` file (in CareerQuest folder)
 - **Format:** ✅ Correct (`VITE_GEMINI_API_KEY=...`)
 - **Status:** ✅ Verified by diagnostic tool
@@ -40,7 +40,7 @@ After restarting, check the browser console. You should see:
 
 ```
 ✅ Gemini API Key loaded successfully
-   Key format: AIzaSyC6CK...DiNA
+   Key format: AIzaSy...xxxxx
 ```
 
 If you see an error instead, see the troubleshooting section below.
